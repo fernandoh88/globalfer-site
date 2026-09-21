@@ -5,6 +5,7 @@ import styles from '../styles/Contact.module.css'
 
 const maxProducts = 30
 const apiUrl = import.meta.env.VITE_API_URL || ''
+const submissionError = 'Não foi possível enviar o orçamento agora. Tente novamente em instantes.'
 const createQuoteItem = () => ({
   id: crypto.randomUUID(),
   product: '',
@@ -45,11 +46,12 @@ function Contact() {
 
   const handleSubmit = async (event) => {
     event.preventDefault()
+    const form = event.currentTarget
     setSubmitted(false)
     setError('')
     setIsSending(true)
 
-    const formData = new FormData(event.currentTarget)
+    const formData = new FormData(form)
     const payload = {
       name: formData.get('nome'),
       phone: formData.get('telefone'),
@@ -69,17 +71,28 @@ function Contact() {
         },
         body: JSON.stringify(payload),
       })
-      const data = await response.json()
-
       if (!response.ok) {
-        throw new Error(data.message || 'Não foi possível enviar a solicitação.')
+        setError(
+          response.status === 429
+            ? 'Muitas solicitações. Tente novamente mais tarde.'
+            : response.status === 400 || response.status === 413
+              ? 'Revise os dados do orçamento e os limites dos campos.'
+              : submissionError,
+        )
+        return
       }
 
-      setSubmitted(true)
-      event.currentTarget.reset()
+      const data = await response.json()
+      if (!data || typeof data.message !== 'string') {
+        setError(submissionError)
+        return
+      }
+
+      form.reset()
       setQuoteItems([createQuoteItem()])
-    } catch (requestError) {
-      setError(requestError.message)
+      setSubmitted(true)
+    } catch {
+      setError(submissionError)
     } finally {
       setIsSending(false)
     }
@@ -110,17 +123,17 @@ function Contact() {
           <div className={styles.row}>
             <label>
               Nome
-              <input type="text" name="nome" placeholder="Seu nome" required />
+              <input type="text" name="nome" placeholder="Seu nome" maxLength={120} required />
             </label>
             <label>
               Telefone / WhatsApp
-              <input type="tel" name="telefone" placeholder="(00) 00000-0000" required />
+              <input type="tel" name="telefone" placeholder="(00) 00000-0000" maxLength={40} required />
             </label>
           </div>
 
           <label>
             Cidade
-            <input type="text" name="cidade" placeholder="Sua cidade" required />
+            <input type="text" name="cidade" placeholder="Sua cidade" maxLength={120} required />
           </label>
 
           <div className={styles.productsHeader}>
@@ -177,6 +190,7 @@ function Contact() {
                   Medidas do produto
                   <textarea
                     rows="3"
+                    maxLength={1000}
                     value={item.measurements}
                     onChange={(event) => updateQuoteItem(item.id, 'measurements', event.target.value)}
                     placeholder="Informe medidas, quantidade, bitola, formato ou observações deste produto"
@@ -189,7 +203,7 @@ function Contact() {
 
           <label>
             Mensagem
-            <textarea name="mensagem" rows="4" placeholder="Conte como a Globalfer pode ajudar" />
+            <textarea name="mensagem" rows="4" placeholder="Conte como a Globalfer pode ajudar" maxLength={2000} />
           </label>
 
           <button type="submit" disabled={isSending}>
