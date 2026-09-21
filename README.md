@@ -12,7 +12,7 @@ The site presents the company, product catalog, services, business advantages, a
 - Contact and quote request form with multiple product line items.
 - Express API endpoint for sending quote requests by email through SMTP.
 - Static production build generated with Vite.
-- GitHub Actions workflow for publishing the built site to GitHub Pages.
+- Firebase Hosting configuration for the static frontend, with a separately hosted Express API.
 
 ## Tech Stack
 
@@ -21,7 +21,7 @@ The site presents the company, product catalog, services, business advantages, a
 - CSS Modules
 - Express
 - Nodemailer
-- GitHub Actions
+- Firebase Hosting
 
 ## Project Structure
 
@@ -35,8 +35,10 @@ public/
 server/
   index.js      Environment loading and server startup
   app.js        Express application and email quote API
-.github/
-  workflows/    GitHub Pages deployment workflow
+scripts/
+  build-firebase.mjs  Deployment configuration validation and frontend build
+firebase.json   Hosting files, navigation, headers and local emulator
+.firebaserc     Public Firebase project mapping
 ```
 
 ## Getting Started
@@ -44,7 +46,7 @@ server/
 Install dependencies:
 
 ```bash
-npm install
+npm ci
 ```
 
 Run the React frontend and Express server together:
@@ -53,7 +55,7 @@ Run the React frontend and Express server together:
 npm run dev
 ```
 
-Frontend runs at `http://127.0.0.1:5173/globalfer-site/`, and the API server runs from `server/index.js`. Vite keeps port 5173 fixed to match the default `FRONTEND_URL`; if occupied, stop the other process or configure both values together. Open the printed `127.0.0.1` URL, since `localhost` is a different browser origin.
+Frontend runs at `http://127.0.0.1:5173/`, and the API server runs from `server/index.js` on port 3001 by default. Vite keeps port 5173 fixed to match the default `FRONTEND_URL`; if occupied, stop the other process or configure both values together. Open the printed `127.0.0.1` URL, since `localhost` is a different browser origin. Leave `VITE_API_URL` unset locally to use Vite's existing `/api` proxy.
 
 Use a supported Node release; this checkout was tested with Node 24.15.0 and npm 11.12.1. The compatibility floor for the automated tests is Node 18.13, but old end-of-life runtimes should not be used for production.
 
@@ -85,11 +87,13 @@ The `.env` file is ignored by Git and should not be committed.
 
 ## Build
 
-Create the production build:
+Create a production-mode build for local verification:
 
 ```bash
 npm run build
 ```
+
+The default Vite base is `/`. `VITE_BASE_PATH` remains available for special builds; Firebase builds require `/`. An ordinary build deliberately permits an unset `VITE_API_URL` while the separate backend is being prepared. That build is suitable for visual review, but its quote form cannot deliver mail on Firebase Hosting until the API origin is configured.
 
 Preview the production build locally:
 
@@ -99,28 +103,74 @@ npm run preview
 
 ## Deployment
 
-The repository includes a GitHub Actions workflow at `.github/workflows/deploy.yml`.
+Firebase Hosting serves the React/Vite frontend. Express runs separately and sends quote requests through SMTP.
 
-When changes are pushed to the `main` branch, the workflow installs dependencies, runs the Vite build, uploads the `dist` folder as a Pages artifact, and deploys it to GitHub Pages.
-
-The default asset base is `/globalfer-site/`, retained from this repository's real `main` branch. For default project Pages hosting, the expected frontend URL is `https://fernandoh88.github.io/globalfer-site/`. Use `/` instead only when the actual hosting uses a custom-domain root.
-
-**Production API configuration is still required.** The current workflow does not supply `VITE_API_URL`. The form constructs `${import.meta.env.VITE_API_URL || ''}/api/orcamento`, so an unconfigured Pages build calls `/api/orcamento` on the Pages origin, where no Express server runs. A successful static build does not establish working email submission.
-
-After the real separately hosted HTTPS backend is identified, set the GitHub repository Actions variable `VITE_API_URL` to its origin, with no trailing slash or endpoint path. Then adapt the existing build step as follows; this is a recommendation, not an applied workflow change:
-
-```yaml
-- name: Compilar site
-  env:
-    VITE_API_URL: ${{ vars.VITE_API_URL }}
-  run: |
-    test -n "$VITE_API_URL" || { echo "Configure the actual separately hosted HTTPS API URL."; exit 1; }
-    npm run build
+```mermaid
+flowchart LR
+  Hosting["Firebase Hosting: globalfer-site.web.app"] -->|HTTPS frontend files| Browser["React / Vite in the browser"]
+  Browser -->|HTTPS: VITE_API_URL| API["Separately hosted Express API"]
+  API --> SMTP
 ```
 
-On that backend, use `FRONTEND_URL=https://fernandoh88.github.io` for default Pages hosting, or the actual custom-domain origin. Do not include `/globalfer-site/` or a trailing slash. No backend URL has been guessed, no backend deployed, and no repository variable configured by this migration. `VITE_*` values become public browser configuration; keep SMTP credentials exclusively on the backend.
+| Setting | Value/status |
+|---|---|
+| User-verified Firebase project | `globalfer-site` |
+| Intended frontend URL | `https://globalfer-site.web.app/` |
+| Exact frontend origin | `https://globalfer-site.web.app` |
+| Verified default Hosting site | `globalfer-site`, confirmed by the installed CLI's read-only site lookup during emulator startup |
+| Backend provider and HTTPS origin | Not selected or deployed in this task |
 
-CI retains Node 20, which satisfies the locked dependency engine ranges but reached end of life on April 30, 2026. Moving CI to a maintained LTS runtime is a follow-up; local verification used Node 24.15.0. See the [official Node release schedule](https://raw.githubusercontent.com/nodejs/Release/main/schedule.json).
+`.firebaserc` records only the verified default project ID. This public CLI mapping is appropriate to commit and contains no credentials. No additional aliases or Hosting targets are configured. No previous Firebase configuration was found in this clone, its ignored project files, or its nine-commit history before this correction; these are newly prepared files, not a recovered deployment record.
+
+The old GitHub Pages workflow and `.nojekyll` marker are removed from this branch. No replacement deployment workflow is enabled. The existing `main` branch and remote hosting settings have not been changed; human review and merge are separate actions.
+
+### Backend and build configuration
+
+The backend must use exactly:
+
+```text
+FRONTEND_URL=https://globalfer-site.web.app
+```
+
+Use HTTPS with no path or trailing slash. The existing exact-origin checks remain unchanged. Keep SMTP credentials exclusively in the backend host's environment/secret storage.
+
+After obtaining the real backend HTTPS origin, set `VITE_API_URL` to that origin in the frontend build environment, with no path or trailing slash. Its actual value is intentionally absent from this repository. `VITE_*` values are public browser configuration and must never contain secrets.
+
+`npm run build:firebase` validates that origin, rejects the Firebase frontend origin and an incompatible base path, then builds from source. Firebase's Hosting `predeploy` hook runs this command, so a missing/invalid API origin stops a normal CLI upload before publishing an old or unconfigured `dist`. In contrast, keeping `npm run build` available without a backend preserves local verification and development. No change to Contact.jsx is needed.
+
+The backend is generally suitable for a managed Node host: `npm start` honors injected `PORT` (default 3001), listens without restricting the host to loopback, uses portable paths, and reads SMTP settings from the environment. Startup does not require a local `.env` or `dist`; the optional static frontend fallback does need `dist/index.html` if used. Select and test a provider separately, including outbound SMTP access, exact proxy trust and shared/aggregate rate limits and mail quotas. Proxy trust remains unchanged.
+
+### Hosting behavior and local review
+
+`firebase.json` publishes only `dist`. Its SPA rewrite uses `!/api{,/**}`: navigation receives `index.html`, while `/api`, `/api/` and deeper API paths are excluded and return 404. The upload ignore list also reserves `api` paths. A missing `VITE_API_URL` therefore produces a failed quote request rather than a successful HTML response masquerading as the API. No backend rewrite is configured. [Hosting configuration reference](https://firebase.google.com/docs/hosting/full-config)
+
+Hosting sets `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY` and `Permissions-Policy: camera=(), microphone=(), geolocation=()`. These protect static responses independently of Express. CSP is deferred pending a resource review. Firebase controls HSTS for `web.app`; no manual HSTS or custom-domain policy is added. [Hosting headers](https://firebase.google.com/docs/hosting/full-config#headers)
+
+All static responses use `Cache-Control: no-cache`: browsers may store them but must revalidate, including HTML and SPA navigation. This conservative policy also covers `/assets/`, which mixes hashed bundles with unhashed public JPG/SVG images. Selective long-lived caching for hashed bundles is deferred; no blanket immutable policy risks retaining old images or HTML. The single header rule uses the supported `regex: ".*"`, avoiding a Windows CLI glob-normalization issue found during local validation. [Hosting cache behavior](https://firebase.google.com/docs/hosting/manage-cache)
+
+With an installed Firebase CLI, build first, then use the Hosting-only local emulator:
+
+```bash
+npm run build
+firebase emulators:start --only hosting --project globalfer-site
+```
+
+The configured listener is `http://127.0.0.1:5000`; the emulator UI is disabled. Check navigation, JS/CSS/images, headers, and API 404s. Do not use real quote delivery for this review. The installed CLI used the existing signed-in session to read project/site metadata during this task and confirmed the default site and URL. No login/logout or remote configuration change was performed. Emulator success does not prove deployment permissions or live behavior.
+
+### Future GitHub Actions authentication
+
+Use Firebase CLI with Application Default Credentials supplied through Google Workload Identity Federation (GitHub OIDC) and a dedicated deploy service account. This avoids a persistent JSON key. Firebase documents ADC for CI; Google's auth action can generate the ADC file through federation. This combination is a recommended design, not an authenticated deployment tested here. [Firebase CLI CI authentication](https://firebase.google.com/docs/cli#cli-ci-systems), [Google auth action](https://github.com/google-github-actions/auth)
+
+Before adding a deployment workflow, an administrator must:
+
+1. Verify the actual Hosting site, Google project number, workload identity provider resource and dedicated service-account email. Enable the Hosting API and federation prerequisites (IAM, Resource Manager, Service Account Credentials and Security Token Service APIs).
+2. Create the GitHub OIDC provider with issuer `https://token.actions.githubusercontent.com/`. Map the subject and required claims; restrict trust to the verified numeric repository/owner IDs and `refs/heads/main`. Grant only that repository's federated identity `roles/iam.workloadIdentityUser` on the deploy service account. Use real project numbers and identifiers; none are supplied here. [Google federation setup](https://docs.cloud.google.com/iam/docs/workload-identity-federation-with-deployment-pipelines)
+3. Grant that account the documented Hosting permissions, `roles/firebasehosting.admin` and `roles/serviceusage.apiKeysViewer`, on the target Firebase project. Avoid Owner/Editor roles. [Firebase Hosting roles](https://firebase.google.com/docs/projects/iam/roles-predefined-product#hosting)
+4. Protect the production GitHub environment and deployment branch. Give only the deploy job `contents: read` and `id-token: write`. Check out, build and verify first, then authenticate using the verified provider/account values and a reviewed version of `google-github-actions/auth`; use a maintained Node release. Keep credential-file creation and environment export enabled so Firebase CLI receives ADC. Its temporary ADC file is covered by `gha-creds-*.json` in `.gitignore` and must never be uploaded as an artifact.
+
+Do not use `firebase init hosting:github` for this approach: its generated integration creates and stores a service-account JSON key as a GitHub secret. No new authentication setup, IAM grants, repository variables/secrets, or remote Firebase settings were configured here. [Firebase generated GitHub integration](https://firebase.google.com/docs/hosting/github-integration)
+
+Actual deployment requires separate authorization after backend configuration, Hosting-site verification, authentication and human review. No deployment command or action is run by this preparation task.
 
 ## API Endpoints
 
@@ -129,4 +179,4 @@ CI retains Node 20, which satisfies the locked dependency engine ranges but reac
 
 The quote endpoint requires the SMTP environment variables listed above.
 
-Set `FRONTEND_URL` to the exact public frontend origin (scheme, host and optional port; no path or trailing slash). Requests with a different browser Origin are rejected. GitHub Pages hosts only the static frontend; configure `VITE_API_URL` at build time for a separately hosted HTTPS API. When serving the frontend directly from Express at `/`, build with `VITE_BASE_PATH=/` instead of the GitHub Pages base path.
+These endpoints belong to Express, not Firebase Hosting. Production uses `FRONTEND_URL=https://globalfer-site.web.app` and the real API origin in frontend `VITE_API_URL`. Requests with a different browser Origin remain rejected.

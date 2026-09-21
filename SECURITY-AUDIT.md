@@ -1,8 +1,54 @@
 # Globalfer Security Audit
 
+## Current deployment correction: Firebase Hosting — 2026-09-21
+
+The user verified Firebase/Google Cloud project `globalfer-site` and the intended frontend URL `https://globalfer-site.web.app/`. **Firebase Hosting serves the frontend.** The exact production frontend origin, and required backend setting, is `FRONTEND_URL=https://globalfer-site.web.app` (no trailing slash or path). The earlier GitHub Pages deployment analysis below is historical and superseded.
+
+The Express backend remains separate. Its provider and real HTTPS origin are not selected or configured in this task. `VITE_API_URL` remains public build configuration with no guessed value. Existing CORS, validation, rate limiting, SMTP behavior, security tests and Express headers are unchanged.
+
+Deployment-only changes:
+
+- Vite now defaults to `/`, retaining `VITE_BASE_PATH` for special builds and the existing loopback host, port 5173, strict port and `/api` development proxy.
+- New `firebase.json` publishes `dist`, supports SPA navigation, and excludes `/api` and `/api/**` from the index rewrite. These API paths return 404 on Hosting. No backend rewrite or provider is configured.
+- New `.firebaserc` maps only the verified default project `globalfer-site`; the identifier is public configuration, not a credential. During emulator startup the installed CLI used the existing signed-in session for read-only project/site discovery, confirming default site `globalfer-site` and URL `https://globalfer-site.web.app`.
+- The Pages workflow and `public/.nojekyll` are removed from this branch. No Firebase deployment workflow replaces them yet. `main`, existing security commits and remote hosting settings remain untouched.
+- `npm run build` stays available without an API origin for local verification. The Hosting predeploy hook invokes `npm run build:firebase`, which requires a separate HTTPS API origin and root base, then rebuilds so stale unconfigured output is not uploaded. No Contact.jsx change is needed.
+- Static Hosting responses gain nosniff, strict-origin-when-cross-origin, DENY framing and camera/microphone/geolocation restrictions. No CSP is introduced. Firebase controls HSTS on `web.app`; a separate custom-domain policy is not assumed.
+- All static responses revalidate with `Cache-Control: no-cache`. Hashed bundles and unhashed public images share `/assets/`; selective long-lived bundle caching is deferred rather than applying blanket immutable caching. A supported `regex: ".*"` header rule avoids the installed Windows CLI's glob-normalization issue.
+- `.firebase/` and temporary `gha-creds-*.json` files are ignored. Existing log and environment exclusions remain.
+
+No Firebase configuration, cache, debug log, backup or Hosting workflow was found in this clone's local project files or nine-commit history before these additions. No configuration could be restored. Firebase CLI 15.16.0 is installed; a known CLI metadata file exists, but its contents were not manually inspected. The CLI reused its existing session (including its automatic token refresh) for metadata reads. No login/logout, project mutation or deployment was performed. The user's earlier initialization outside this permitted checkout cannot be established from that evidence.
+
+The backend is generally cloud-deployable: it supports injected `PORT` (default 3001), listens on an unspecified host, uses portable paths and environment-supplied SMTP settings, and starts without a local `.env` or `dist`. Its optional static fallback needs `dist/index.html` when used. Actual hosting, outbound SMTP, HTTPS, exact proxy trust and aggregate quotas/monitoring still require separate verification; no provider is selected and proxy trust remains false.
+
+Future GitHub deployment should use Workload Identity Federation/OIDC with a dedicated service account and Firebase CLI Application Default Credentials. README describes the manual API/IAM/provider/repository restrictions and documented Hosting roles. No account identifiers beyond the verified project are invented, and no long-lived key, token, secret or deploy workflow is created. The legacy workflow's Node 20 configuration is removed with that workflow; a future workflow must use a maintained runtime.
+
+References: [Hosting routing/headers](https://firebase.google.com/docs/hosting/full-config), [cache behavior](https://firebase.google.com/docs/hosting/manage-cache), [Firebase CLI CI authentication](https://firebase.google.com/docs/cli#cli-ci-systems), [Google federation](https://docs.cloud.google.com/iam/docs/workload-identity-federation-with-deployment-pipelines). These changes prepare local configuration only; they do not establish a live deployment or working production mail submission.
+
+### Verification of the Firebase correction
+
+Verified locally with Node 24.15.0, npm 11.12.1 and Firebase CLI 15.16.0:
+
+| Check | Result |
+|---|---|
+| `npm ci` | Pass; 168 packages installed |
+| Syntax checks: server/index.js, server/app.js, scripts/build-firebase.mjs | Pass |
+| `npm audit` / `npm audit --omit=dev` | 0 vulnerabilities in each |
+| `npm test` | 146 passed, 0 failed, 0 skipped; existing fake/in-memory SMTP tests unchanged |
+| `npm run build` | Pass; Vite 6.4.3, 1,595 modules |
+| Generated JS/CSS | Root `/assets/` paths; no `/globalfer-site/assets/` prefix |
+| Public assets | All 12 copied byte-identically; all 14 built/public assets served with correct content types |
+| Firebase configuration | Pass against the installed CLI's JSON schema and Hosting emulator |
+| Hosting HTTP validation | 27 checks passed: 3 HTML/navigation responses, 10 GET/POST API 404s, 14 assets; all carry the four configured security headers and `no-cache` |
+| Deployment build guard | Nine invalid/missing-origin cases rejected before build/upload; previous local output unchanged |
+| Project/site discovery | CLI confirmed active project `globalfer-site`, default site `globalfer-site`, and `https://globalfer-site.web.app` using its existing session |
+| Deployment diff/secret review | Only the 10 intended deployment paths; no actual credentials, service-account keys or environment files added; application/security code and lockfile unchanged |
+
+The first emulator header check exposed a Windows-specific `glob-slasher` normalization issue in the installed CLI: positive header globs failed to match and a negated asset glob matched too broadly. Replacing those header rules with one supported RE2 regex resolved the issue; the final schema and HTTP checks passed. API rewrite exclusions worked in both runs. The emulator was stopped after validation. No live deployment, SMTP connection, message delivery, login/logout or IAM/project mutation was performed.
+
 ## Migration onto verified GitHub history — 2026-09-21
 
-This section records the migration-completion snapshot, before the authorized commit and publication pass. The dependency audit and original verification sections below retain the history of the earlier work in the isolated OneDrive directory; their unborn-branch remarks describe that source only. Consult this branch's Git history for subsequent commits.
+This section records the migration-completion snapshot, before the authorized commit and publication pass. Its GitHub Pages assumptions are superseded by the Firebase correction above. The dependency audit and original verification sections below retain the history of the earlier work in the isolated OneDrive directory; their unborn-branch remarks describe that source only. Consult this branch's Git history for subsequent commits.
 
 | Item | Verified result |
 |---|---|
@@ -83,15 +129,15 @@ Verification ran with Node **24.15.0** and npm **11.12.1** in this clone, using 
 
 The API and mail-composition tests inject SMTP fakes or use an in-memory stream transport with a socket guard. No real SMTP connection or email delivery occurred. All required verification results match the earlier reviewed state. Different output asset hashes/sizes are expected from the retained real-main files and corrected repository base.
 
-### Production configuration still required
+### Superseded GitHub Pages configuration analysis at migration time
 
-The workflow currently supplies **no VITE_API_URL**. Contact.jsx constructs `${import.meta.env.VITE_API_URL || ''}/api/orcamento`. Without an explicit separately hosted API origin, a default Pages build posts to `https://fernandoh88.github.io/api/orcamento`, where Express does not run. Static build success therefore does not establish working production email submission.
+The workflow then supplied **no VITE_API_URL**. Contact.jsx constructed `${import.meta.env.VITE_API_URL || ''}/api/orcamento`. Under the former Pages assumption, an unconfigured build would post to the Pages origin, where Express does not run. This production-host assumption was incorrect and is superseded; static build success alone still does not establish working mail submission.
 
-Real main's `/globalfer-site/` base has been retained. For default project Pages the frontend address is `https://fernandoh88.github.io/globalfer-site/`; actual live Pages/custom-domain settings were not queried. No backend URL was invented or deployed. README contains a proposed build-step mapping from the future GitHub Actions repository variable `VITE_API_URL` into the build environment; that recommendation has **not** been applied to the workflow or GitHub settings.
+The migration retained main's `/globalfer-site/` base under the former Pages assumption; live hosting settings were not queried. The current Firebase correction replaces that base with `/` and removes the obsolete deployment workflow. No backend URL was invented or deployed in either pass.
 
-For default Pages, the backend requires `FRONTEND_URL=https://fernandoh88.github.io`, with no repository path or trailing slash. For custom-domain hosting use its exact origin instead. Before deployment verify HTTPS, the proxy trust configuration, shared/aggregate mail quotas and HSTS coverage as detailed below.
+The earlier Pages-origin recommendation is withdrawn. Current production requires `FRONTEND_URL=https://globalfer-site.web.app`, with no path or trailing slash. Before deployment verify HTTPS, proxy trust, shared/aggregate mail quotas and HSTS coverage as detailed below.
 
-The workflow retains Node 20. All locked packages with declared Node engines admit that runtime; packages without declarations make no engine guarantee. Node 20 reached end of life on 2026-04-30, so switching CI to a maintained LTS release is an operational follow-up, not an incompatibility forced by these dependency upgrades. Production's actual Node runtime remains unknown. See the [official Node schedule](https://raw.githubusercontent.com/nodejs/Release/main/schedule.json).
+The former workflow retained Node 20. All locked packages with declared Node engines admitted that runtime; packages without declarations make no engine guarantee. That workflow is now removed. Any future CI must use a maintained runtime; production's actual Node runtime remains unknown. See the [official Node schedule](https://raw.githubusercontent.com/nodejs/Release/main/schedule.json).
 
 ### Review state and commit plan at migration completion
 
@@ -111,7 +157,7 @@ During migration, no blanket staging, commit, push, merge, reset, clean, history
 
 ## Architecture summary
 
-Globalfer is a React 18/Vite single-page frontend (`src/`) with an Express 4 server (`server/index.js` bootstrap, `server/app.js` application). The server serves `dist/` and exposes `GET /api/health` plus `POST /api/orcamento`, which validates quote data and sends email through Nodemailer/SMTP. Configuration is supplied by environment variables. There is no database, authentication, admin area, upload flow, payment integration, or external API in this checkout. GitHub Actions builds and deploys the static frontend to GitHub Pages.
+Globalfer is a React 18/Vite single-page frontend (`src/`) served by Firebase Hosting at the intended `https://globalfer-site.web.app/` URL. A separately hosted Express 4 server (`server/index.js` bootstrap, `server/app.js` application) exposes `GET /api/health` plus `POST /api/orcamento`, validating quote data and sending email through Nodemailer/SMTP. The server retains an optional `dist/` static fallback, but Firebase is the production frontend host. Configuration comes from environment variables; the real API origin and backend provider are still undecided. There is no database, authentication, admin area, upload flow or payment integration in this checkout. No automated deployment workflow is enabled in this branch.
 
 ## Findings
 
@@ -348,7 +394,7 @@ JSON parsing is confined to the quote POST with `express.json({ limit: '64kb', s
 
 CORS access is granted only to exact FRONTEND_URL. A mismatching browser Origin cannot send a quote; no-Origin non-browser requests remain allowed. Set FRONTEND_URL to the frontend's **origin only**, e.g. https://example.com, not a path/trailing slash. Production same-origin form submissions also need that value configured correctly. Vite development now binds to 127.0.0.1:5173 with strictPort, matching the existing default/example origin; automatic localhost/alternate-port selection would otherwise cause valid proxied submissions to fail the origin check. The actual Vite-to-Express proxy was exercised with mocked SMTP.
 
-All tested API success/failure responses retain X-Content-Type-Options, X-Frame-Options, Referrer-Policy and Permissions-Policy; X-Powered-By is absent. HSTS is emitted only for NODE_ENV=production. Production must use HTTPS, and includeSubDomains assumes all covered subdomains support HTTPS. Headers on GitHub Pages/CDN responses are controlled by that hosting layer, not Express.
+All tested API success/failure responses retain X-Content-Type-Options, X-Frame-Options, Referrer-Policy and Permissions-Policy; X-Powered-By is absent. HSTS is emitted only for NODE_ENV=production. Production must use HTTPS, and includeSubDomains assumes all covered subdomains support HTTPS. Firebase Hosting independently serves the frontend; its headers are now configured in firebase.json, not by Express.
 
 ### Frontend and repository configuration review
 
@@ -358,7 +404,7 @@ Searched source, compiled dist, public text assets and configuration for SMTP, P
 
 Added weekly npm Dependabot configuration in .github/dependabot.yml. It is prepared locally; it must reach the default branch through human review before GitHub applies it. No remote Dependabot settings or alerts were inspected because this task did not use an authenticated GitHub service.
 
-GitHub Actions now defaults to no permissions: build gets contents:read/pages:read, deploy gets pages:write/id-token:write. Existing triggers, action versions, build/deployment steps and Node 20 configuration remain unchanged. This matches [configure-pages default behavior](https://github.com/actions/configure-pages/blob/v5/action.yml) and [deploy-pages permissions](https://github.com/actions/deploy-pages/tree/v4#security-considerations). GitHub Pages deploys static files only; the SMTP API still needs a separate HTTPS backend with correct VITE_API_URL/FRONTEND_URL. If serving the frontend directly from Express at /, build with VITE_BASE_PATH=/ instead of the GitHub Pages prefix. A later runtime-maintenance change should move CI from the retained, now end-of-life Node 20 line to a [supported Node release](https://nodejs.org/en/about/previous-releases); local verification here uses Node **24.15.0** and npm **11.12.1**.
+**Superseded workflow evidence:** the original security pass restricted the Pages workflow to contents:read/pages:read for build and pages:write/id-token:write for deployment, retaining its triggers and Node 20. The Firebase correction removes that workflow entirely. Firebase Hosting serves the static frontend, and the SMTP API still needs a separate HTTPS backend with correct VITE_API_URL and FRONTEND_URL. The Vite default is now `/`. A future workflow must use a [supported Node release](https://nodejs.org/en/about/previous-releases); the original local verification used Node **24.15.0** and npm **11.12.1**.
 
 ### Tests and final verification
 

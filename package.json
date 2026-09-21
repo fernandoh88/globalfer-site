@@ -8,6 +8,7 @@
     "dev:client": "vite",
     "dev:server": "node --watch server/index.js",
     "build": "vite build",
+    "build:firebase": "node scripts/build-firebase.mjs",
     "preview": "vite preview",
     "start": "node server/index.js",
     "test": "node --test"

@@ -2,6 +2,8 @@ node_modules/
 dist/
 build/
 coverage/
+.firebase/
+gha-creds-*.json
 .env
 .env.*
 !.env.example

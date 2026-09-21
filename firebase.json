@@ -1,0 +1,40 @@
+{
+  "hosting": {
+    "public": "dist",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**",
+      "api",
+      "api/**"
+    ],
+    "predeploy": ["npm run build:firebase"],
+    "rewrites": [
+      {
+        "source": "!/api{,/**}",
+        "destination": "/index.html"
+      }
+    ],
+    "headers": [
+      {
+        "regex": ".*",
+        "headers": [
+          { "key": "X-Content-Type-Options", "value": "nosniff" },
+          { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+          { "key": "X-Frame-Options", "value": "DENY" },
+          { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=()" },
+          { "key": "Cache-Control", "value": "no-cache" }
+        ]
+      }
+    ]
+  },
+  "emulators": {
+    "hosting": {
+      "host": "127.0.0.1",
+      "port": 5000
+    },
+    "ui": {
+      "enabled": false
+    }
+  }
+}
