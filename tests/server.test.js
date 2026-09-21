@@ -572,10 +572,61 @@ for (const environment of ['test', 'development', 'production']) {
   })
 }
 
+for (const path of ['/', '/index.html', '/assets/globalfer-capa.jpg', '/nested/frontend/route', '/api/unknown']) {
+  test(`API-only server returns safe JSON 404 for GET ${path}`, async (t) => {
+    const server = await fixture(t)
+    const response = await request(server, { method: 'GET', path })
+    assert.equal(response.status, 404)
+    assert.deepEqual(response.body, { message: 'Rota não encontrada.' })
+    assertSafe(response)
+    assert.equal(server.transports.length, 0)
+    assert.equal(server.sent.length, 0)
+  })
+}
+
+test('unknown API POST does not create a transport or serve the frontend', async (t) => {
+  const server = await fixture(t)
+  const response = await request(server, { path: '/api/unknown' })
+  assert.equal(response.status, 404)
+  assertSafe(response)
+  assert.equal(server.transports.length, 0)
+  assert.equal(server.sent.length, 0)
+})
+
+test('health succeeds with all SMTP configuration absent and exposes only availability', async (t) => {
+  const server = await fixture(t, {
+    env: {
+      SMTP_HOST: undefined, SMTP_PORT: undefined, SMTP_SECURE: undefined,
+      SMTP_USER: undefined, SMTP_PASS: undefined, SMTP_FROM: undefined,
+    },
+  })
+  const response = await request(server, { method: 'GET', path: '/api/health' })
+  assert.equal(response.status, 200)
+  assert.deepEqual(response.body, { ok: true })
+  assertHeaders(response)
+  assert.equal(server.transports.length, 0)
+  assert.equal(server.sent.length, 0)
+})
+
+test('production Firebase origin works while paths, trailing slashes and local origins remain rejected', async (t) => {
+  const origin = 'https://globalfer-site.web.app'
+  const server = await fixture(t, { env: { FRONTEND_URL: origin } })
+  const allowed = await post(server, validQuote(), { Origin: origin })
+  assert.equal(allowed.status, 200)
+  assert.equal(allowed.headers['access-control-allow-origin'], origin)
+  for (const invalid of [`${origin}/`, `${origin}/path`, 'http://127.0.0.1:5173']) {
+    const response = await post(server, validQuote(), { Origin: invalid })
+    assert.equal(response.status, 403)
+    assert.equal(response.headers['access-control-allow-origin'], undefined)
+    assertSafe(response)
+  }
+  assert.equal(server.sent.length, 1)
+})
+
 test('framework URL-decoding failures reach the safe final error handler', async (t) => {
   const server = await fixture(t)
   const response = await request(server, { method: 'GET', path: '/%E0%A4%A' })
-  assert.ok(response.status >= 400 && response.status <= 500)
+  assert.equal(response.status, 400)
   assertSafe(response)
   assert.equal(server.transports.length, 0)
 })

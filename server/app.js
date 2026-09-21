@@ -1,10 +1,6 @@
 import cors from 'cors'
 import express from 'express'
 import nodemailer from 'nodemailer'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-
-const distPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist')
 const maxProducts = 30
 const rateWindowMs = 15 * 60 * 1000
 const maxRequestsPerWindow = 8
@@ -231,12 +227,12 @@ export const createApp = ({
     }
   })
 
-  app.use(express.static(distPath))
-  app.get('*', (request, response) => {
-    response.sendFile(path.join(distPath, 'index.html'))
+  // Firebase Hosting (or Vite locally) serves the frontend; this process is API-only.
+  app.all('*', (request, response) => {
+    response.status(404).json({ message: 'Rota não encontrada.' })
   })
 
-  // Last, so parser, route and static-file failures all get client-safe responses.
+  // Last, so parser, route and framework failures all get client-safe responses.
   app.use((error, request, response, next) => {
     if (response.headersSent) {
       logger.error('[server] response_failed')

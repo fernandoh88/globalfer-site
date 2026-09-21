@@ -1,0 +1,11 @@
+# Allow only the backend runtime and its locked dependency manifest into the context.
+**
+!Dockerfile
+!.dockerignore
+!package.json
+!package-lock.json
+!server/
+server/**
+!server/app.js
+!server/index.js
+!server/shutdown.js

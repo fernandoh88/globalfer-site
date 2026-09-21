@@ -1,6 +1,38 @@
 # Globalfer Security Audit
 
-## Current deployment correction: Firebase Hosting — 2026-09-21
+## Current backend preparation: Cloud Run — 2026-09-21
+
+Cloud Run is the intended backend candidate for project `globalfer-site`; no service, actual backend HTTPS origin or cloud resources have been created. Firebase Hosting remains the frontend at `https://globalfer-site.web.app/`, with exact backend setting `FRONTEND_URL=https://globalfer-site.web.app`. `VITE_API_URL` remains unset. Firebase configuration, frontend code, dependencies and lockfile are unchanged in this preparation. The Firebase correction and earlier security evidence below are historical snapshots.
+
+### Changed runtime and deployment assumptions
+
+- Express is now API-only. The `dist/` static middleware and SPA fallback are removed; unmatched routes return a fixed JSON 404 through the existing security middleware. Firebase serves production frontend files and Vite continues to serve/proxy local development. Regression tests cover frontend/asset/unknown routes, malformed URLs, SMTP-free health and the exact production origin.
+- `npm start` still uses the injected `PORT`, with local default 3001. The existing unspecified-host listener is retained: Linux container verification confirmed wildcard binding and IPv4 reachability. Startup failures now emit only a fixed category. SIGTERM/SIGINT stop acceptance and drain active HTTP requests for at most eight seconds, within Cloud Run's normal ten-second termination window. Mail work can still be interrupted; neither this drain nor a platform timeout guarantees delivery or exactly-once behavior.
+- The explicit Dockerfile uses `node:24.21.0-bookworm-slim`, locked production dependencies, disabled install scripts, direct Node execution and the non-root `node` user. The allowlisted build context and explicit copies exclude environment files, credentials, Git metadata, host dependencies, frontend output and tests. No package engine/dependency change was needed. The tested base resolved to `sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6`; a future published application image must record its own immutable digest and receive security rebuilds.
+- `trust proxy` remains false: no verified fixed Cloud Run forwarding topology justifies trusting headers or an arbitrary hop count. The limiter uses the immediate peer, potentially grouping unrelated visitors behind Google proxies. Its eight-attempt/15-minute quota remains per process, resets on restart and is not shared between instances/revisions. The proposed service maximum of one instance is not a global quota and can briefly be exceeded. A monitored low-volume pilot requires explicit acceptance of this limitation, observed proxy behavior and provider limits; broader availability needs aggregate abuse controls. No shared store, Cloud Armor or other infrastructure is added.
+- Public browser invocation will require a separately approved public ingress/access model. CORS/Origin filtering is not authentication; bots can omit or forge Origin. Existing validation, body limits, fixed recipient, SMTP protections and forged-forwarding-header tests remain intact. A later Firebase rewrite alone would neither authenticate the backend nor fix rate limits; `firebase.json` has no new rewrite.
+- Production mail should use provider-supported port 465 with `SMTP_SECURE=true`, retaining certificate verification. The existing 587/false mode is opportunistic STARTTLS and must not be represented as enforced TLS; using it in production requires a separately tested fail-closed policy. Existing SMTP timeouts, escaped HTML, controlled sender/recipient fields and generic error handling are unchanged. Provider connectivity, sender authorization, quotas and any static-egress requirements remain unverified.
+- `SMTP_PASS` should map to a pinned Secret Manager version; private `SMTP_USER` may use the same mechanism. Ordinary host/port/origin/address settings need no secret store solely because they are configuration. The [README environment inventory and deployment plan](README.md#backend-deployment--cloud-run) list all ten backend variables, least-privilege runtime identity recommendations and unapplied service/region options. No secrets, keys, IAM grants, APIs or cloud deployment commands were created or executed.
+- Health remains the quick, quota-exempt `{ "ok": true }` response without SMTP, version or environment disclosure. Application stdout/stderr retains fixed categories, including startup/shutdown; Cloud Logging's separate platform request metadata still requires access/retention review. No request bodies, customer details or raw provider errors are added to logs.
+
+### Verification of Cloud Run preparation
+
+| Check | Result |
+|---|---|
+| `npm ci` | Pass; 168 packages installed, lockfile unchanged |
+| `node --check server/index.js`, `server/app.js`, `server/shutdown.js` | Pass |
+| `npm audit` / `npm audit --omit=dev` | 0 vulnerabilities in each |
+| `npm test` on Windows Node 24.15.0 | 157 passed, 0 failed, 0 skipped; all previous tests preserved |
+| Same suite in Linux Node 24.21.0 container | 157 passed, 0 failed, 0 skipped; network disabled, filesystem/tests read-only |
+| `npm run build` | Pass; Vite 6.4.3, 1,595 modules |
+| Local Vite integration | Frontend/JSX, API health, invalid quote and exact local-origin proxy behavior pass without SMTP |
+| Linux amd64 container | Builds successfully; UID 1000; backend runtime only, no credentials, frontend output or development dependencies |
+| Container runtime smoke checks | Injected port/wildcard listener, safe health/404/Origin behavior, fixed startup failure and actual SIGTERM exit 0 pass; no SMTP credentials, network disabled |
+| Final diff and secret/artifact review | Exactly nine intended files; no suspected actual secrets, service-account JSON, environment files or generated artifacts added; required keyword hits are references/placeholders/test fixtures |
+
+Local verification created a review image only, with no registry upload. Temporary containers and local development servers were stopped after checks. Real SMTP, Firebase/Cloud Run deployment, IAM changes, API enablement and Secret Manager creation were not performed. The code/container are ready for deployment review; production remains conditional on the README's manual prerequisites and controlled verification after separate authorization.
+
+## Firebase frontend correction snapshot — 2026-09-21
 
 The user verified Firebase/Google Cloud project `globalfer-site` and the intended frontend URL `https://globalfer-site.web.app/`. **Firebase Hosting serves the frontend.** The exact production frontend origin, and required backend setting, is `FRONTEND_URL=https://globalfer-site.web.app` (no trailing slash or path). The earlier GitHub Pages deployment analysis below is historical and superseded.
 
@@ -157,7 +189,7 @@ During migration, no blanket staging, commit, push, merge, reset, clean, history
 
 ## Architecture summary
 
-Globalfer is a React 18/Vite single-page frontend (`src/`) served by Firebase Hosting at the intended `https://globalfer-site.web.app/` URL. A separately hosted Express 4 server (`server/index.js` bootstrap, `server/app.js` application) exposes `GET /api/health` plus `POST /api/orcamento`, validating quote data and sending email through Nodemailer/SMTP. The server retains an optional `dist/` static fallback, but Firebase is the production frontend host. Configuration comes from environment variables; the real API origin and backend provider are still undecided. There is no database, authentication, admin area, upload flow or payment integration in this checkout. No automated deployment workflow is enabled in this branch.
+Globalfer is a React 18/Vite single-page frontend (`src/`) served by Firebase Hosting at the intended `https://globalfer-site.web.app/` URL. The separate Express 4 backend (`server/index.js` bootstrap, `server/app.js` application, `server/shutdown.js` lifecycle) exposes `GET /api/health` plus `POST /api/orcamento`, validating quote data and sending email through Nodemailer/SMTP. It is API-only, with no `dist/` static serving or SPA fallback. Configuration comes from environment variables; Cloud Run is the intended candidate but has not been deployed and no real API origin exists yet. There is no database, authentication, admin area, upload flow or payment integration in this checkout. No automated deployment workflow is enabled in this branch.
 
 ## Findings
 
@@ -374,7 +406,7 @@ The prior remediation still coerced non-string input and logged raw Error object
 - Text/HTML bodies are assembled explicitly; all user text is HTML-escaped. Body newlines remain legitimate body content and cannot add recipients or headers. File/URL content access is disabled in the mail transport.
 - SMTP failure responses use one generic 500 message for authentication, connection, timeout and other failures. Logs contain only fixed categories such as `[mail] delivery_failed`; no provider Error object, message, code, stack, hostname or credentials are logged.
 - Explicit SMTP DNS/connect/greeting timeouts are 10 seconds each, socket inactivity timeout 20 seconds. These bound individual stages, not a promised end-to-end deadline.
-- API errors use JSON; malformed input returns 400, oversized JSON 413, unsupported content type/encoding 415, forbidden Origin 403 and rate limit 429. The final error middleware also covers static-file/framework failures.
+- API errors use JSON; malformed input returns 400, oversized JSON 413, unsupported content type/encoding 415, forbidden Origin 403 and rate limit 429. The final error middleware covers framework failures; static serving is removed by the later Cloud Run preparation.
 
 ### Rate limiting, proxy deployment and abuse
 
