@@ -1,0 +1,640 @@
+# Globalfer Security Audit
+
+## Dual-recipient configuration and rollout requirements — 2026-09-22 UTC
+
+This section records the reviewed recipient change and required rollout configuration. At the pre-change production inspection, Cloud Run had **one explicitly configured recipient**. Because environment configuration takes precedence over the fallback, the backend image and production recipient value must both be updated.
+
+```text
+QUOTE_EMAIL_TO=fernando403@gmail.com,globalfer_marilia@yahoo.com.br
+```
+
+The application fallback and example use that exact trusted, server-controlled string. A nonempty `QUOTE_EMAIL_TO` environment value overrides the complete fallback list; an absent or empty value uses both fallback addresses. Nodemailer supports the comma-separated recipient string directly: with the intended two-recipient value, each valid quote makes **one `sendMail` call and one message with both addresses in `To`**, without `Cc` or `Bcc`. `From` and `Reply-To` remain server-controlled, and strict request validation rejects visitor-supplied recipient/header fields.
+
+Regression verification for this change covers the fallback, explicit environment precedence, one-call/two-recipient semantics and rejection of forged routing fields, using only fake or in-memory transport. No valid production quote, SMTP connection or real email is authorized in this task. The earlier controlled quote at **2026-09-22T01:25:06Z** confirmed one SMTP acceptance under the previous recipient configuration; it did not verify delivery to both intended inboxes, and final inbox delivery was not independently verified. A later two-inbox test requires separate explicit authorization.
+
+The authorized backend rollout must explicitly set Cloud Run to the exact recipient value above and deploy the new immutable image. It must preserve `SMTP_PASS:3`, all other SMTP configuration, runtime identity, origin, public access, resource settings, `trust proxy=false` and the existing 120-POST/minute and eight-mail-attempt/15-minute process budgets. One quote consumes one mail-attempt reservation even with two recipients; provider recipient-based quotas may differ. Firebase Hosting, the public Footer contact and PR/main merge state are outside this change.
+
+This pre-rollout record does not claim that the new production revision is already active. The completion report must record its image digest/revision, verify the exact two-recipient environment value and unchanged protected configuration, and report only safe health/negative checks without triggering mail. The following Hosting and single-quote verification sections are historical snapshots that predate this recipient change.
+
+## Production frontend connection snapshot — 2026-09-22 UTC
+
+Firebase Hosting now serves the reviewed frontend connected directly to the existing Cloud Run backend. Work remained in `C:\github\globalfer-secure` on `security-hardening`; both `bdc815c` and `e3c131d` were present and the initial working tree was clean. Local and remote `main` remained at `c5809a285b91df58dec8d026110c02242434aa30`. The backend mitigation below remains in force; its pending-frontend statements describe the earlier snapshot.
+
+| Production item | Verified value |
+|---|---|
+| Firebase project / Hosting site | `globalfer-site` / `globalfer-site` |
+| Frontend | `https://globalfer-site.web.app/` |
+| Frontend build setting | `VITE_API_URL=https://globalfer-api-nxbq6byh4q-rj.a.run.app` |
+| Final quote endpoint | `https://globalfer-api-nxbq6byh4q-rj.a.run.app/api/orcamento` |
+| Backend allowed origin | `FRONTEND_URL=https://globalfer-site.web.app` |
+| Cloud Run revision, unchanged | `globalfer-api-00002-vbf` in `southamerica-east1` |
+| Final Hosting version | `sites/globalfer-site/versions/fc953ce63aaa0a00` |
+| Final Hosting release | `sites/globalfer-site/releases/1790039165331000` |
+| Release timestamp / status | `2026-09-22T01:06:05.331Z` / `DEPLOY`, version `FINALIZED` |
+
+### Controlled production quote verification
+
+At **2026-09-22T01:25:06Z**, one separately authorized valid production quote resulted in exactly **one Cloud Run POST**, HTTP **200**, one frontend success state and one form reset. Nodemailer completed successfully and the SMTP provider accepted the message. No retry or duplicate POST was observed. The log review for that attempt found no sensitive information.
+
+**Final inbox delivery was not independently verified by automation. No additional production quote or retry is authorized.** The remaining manual verification is receipt of the already submitted controlled message in the intended mailbox. SMTP acceptance is not proof of final inbox delivery. The deployment-only checks below preceded this separately authorized quote; older snapshots retain their original no-SMTP verification boundaries.
+
+### Build configuration and deployment scope
+
+The API origin is supplied as a **process environment variable for each production build and deploy**, with `VITE_BASE_PATH=/`. It is public browser configuration, not hardcoded into `Contact.jsx` or stored in a new `.env` file. The existing `build:firebase` guard validates the origin and root base; Hosting's predeploy hook rebuilds with those same inherited values. `Contact.jsx` already appends `/api/orcamento` correctly, so application code required no change. Existing configuration targets `dist` and the verified default project/site. The installed Firebase CLI's read-only `use` command confirmed `globalfer-site` before deployment.
+
+Only `firebase deploy --only hosting --project globalfer-site --config firebase.json --non-interactive` was run, with the explicit build environment. Fifteen static files were published. No functions, Firestore, Storage, Database, extensions, Cloud Run or Secret Manager resources were deployed or changed. A private comparison of the complete relevant Cloud Run configuration, generation and revision against the pre-task snapshot passed exactly; this includes SMTP settings, `SMTP_PASS:3`, identity, ingress/access, scaling and resource settings. The legacy Firebase function's update time is also unchanged. The old Hosting-to-function API rewrite is absent from the newly deployed static configuration.
+
+### Hosting routing correction discovered in production
+
+The first Hosting release passed local emulator checks, but live GETs to `/api` and `/api/orcamento` returned the new SPA document with status 200; `/api/` returned 404. The responses contained the current build and were cache misses, so the failure was not explained by stale frontend files. The deployed configuration still contained the intended negated brace glob. This establishes an emulator/production discrepancy for that pattern, not a general claim that Firebase negated globs are unsupported.
+
+The only runtime configuration change is in `firebase.json`: replace that glob with a positive RE2 pattern matching paths outside the exact lowercase `api` first segment. It uses character classes and alternatives, without unsupported negative lookahead. Slash/backslash classes also accommodate the installed Windows emulator's observed `glob-slasher` path normalization. No SDK files or cache policy were changed. [Firebase rewrite patterns](https://firebase.google.com/docs/hosting/full-config#rewrites)
+
+A corrected Hosting-only release passed **27 HTTP checks in both emulator and production**. Homepage, `/index.html`, JavaScript, CSS and 12 images match the reviewed build bytes and content types. SPA checks include `/review/navigation`, `/a`, `/ap` and `/apiary`. `/api`, `/api/`, `/api/orcamento`, `/api/health`, deeper API paths and API query-string variants return 404 without the SPA document. Separate bounded pattern checks covered URL paths and installed Windows normalization. Neither a Cloud Run rewrite nor a function/pinTag rewrite was introduced.
+
+### Browser, CORS, headers, cache and privacy verification
+
+- A fresh headless Chrome profile loaded the production build in the emulator and on the live frontend: homepage 200, correct JavaScript/CSS, 12 loaded images, five working navigation targets, quote form rendered, and no unexpected console, loading or JavaScript errors. The final routing release serves the same byte-verified browser bundle, `index-BXYJZbLl.js`.
+- The Hosting-verification browser harness permits only one deliberately invalid, entirely blank form payload to the exact quote endpoint. A second network interception guard rejects other write requests; all fields are checked empty before bypassing browser-required-field checks. No valid quote payload or customer information was submitted during those deployment checks. From the emulator origin, the browser correctly rejected the request through CORS and displayed the generic error; the backend origin setting was not weakened.
+- From the natural production browser origin, preflight returned **204**, the invalid quote returned **400**, and both allowed exactly `https://globalfer-site.web.app`. JavaScript could read the validation JSON and displayed its validation error with no success state. A separate wrong-Origin `{}` POST returned **403** without an allow-origin header. Health returned **200**.
+- Firebase static responses independently passed `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY` and `Permissions-Policy: camera=(), microphone=(), geolocation=()`. Backend responses separately passed those headers plus production HSTS; `X-Powered-By` was absent. Express headers are not credited to Firebase Hosting.
+- Homepage, index, SPA documents, hashed JS/CSS and images retained the configured **`Cache-Control: no-cache`**. No long immutable HTML caching or cache-policy change was introduced.
+- Generated HTML/JavaScript use `/assets/...`, contain the exact public Cloud Run origin and resolved quote endpoint, and contain no obsolete GitHub Pages runtime URL. A private comparison found no configured SMTP identity/host/recipient values, SMTP secret key names, access-token patterns or service-account key material in them. No local production `.env` was created or loaded, and no Secret Manager payload was read.
+- A time-bounded review of the Hosting deployment's five recent Cloud Run request entries observed statuses 200, 204, 400, 403 and the rejected local preflight's 404, with zero application stdout/stderr entries. No request body, customer name/phone, configured SMTP values, environment values or tokens were found in the reviewed payload fields. Only counts/statuses were printed; this is a bounded review, not an assertion about all historical logs.
+
+### Verification and remaining release boundary
+
+`npm ci`, full and production-only `npm audit`, `npm test -- --test-reporter=dot`, and the explicitly configured `npm run build:firebase` passed before deployment and were repeated after the final configuration/documentation changes. Both audits report **zero vulnerabilities**; **167 tests pass**, with no real SMTP network access. The production build uses Vite 6.4.3 and transforms 1,595 modules. The final build is compared against the deployed files so the documentation commit does not imply an unverified frontend artifact change.
+
+The Hosting integration commit changed only `firebase.json`, `README.md` and `SECURITY-AUDIT.md`. `Contact.jsx`, backend code, package manifests/lockfile, SMTP settings and cloud identities were unchanged by that deployment. The commit was `chore(deploy): connect Firebase frontend to Cloud Run`, pushed normally to `security-hardening` without merging main or rewriting history. This final review corrects only the documentation of the subsequent controlled quote.
+
+**One controlled production quote has been verified through SMTP provider acceptance; final inbox delivery remains independently unverified.** No additional quote or retry is authorized. Manually verify receipt of the already submitted message before considering delivery confirmed. The shared process budgets, possible denial of mail capacity, restart/revision limits, and need for provider-wide quota monitoring remain as documented below. The legacy function also remains deployed outside the new service's counters.
+
+## Cloud Run rate-limit mitigation snapshot — 2026-09-21
+
+Scope: `C:\github\globalfer-secure`, branch `security-hardening`, based on `9b55cfe4c93d0d210763a1889d23054069509b05`. Before this update, the live service was `globalfer-api-00001-xv8` in `globalfer-site` / `southamerica-east1`, at `https://globalfer-api-nxbq6byh4q-rj.a.run.app`. The runtime change replaces the IP-keyed limiter; the sections below this one are historical snapshots. Dependencies, lockfile, frontend, Firebase configuration and container definition are unchanged.
+
+### Verified behavior and authoritative proxy assumptions
+
+The previous code explicitly set `trust proxy=false`, keyed a bounded Map by `request.ip`, and counted every quote POST before Origin, content type, parsing or validation. Express therefore used the socket peer; callers behind the same Google proxy could share eight attempts for 15 minutes. Existing forged-header tests verified that changing `X-Forwarded-For`, `X-Real-IP` and `Forwarded` could not bypass that peer's quota. Inspection and documentation research preceded this change.
+
+Current official documentation supports the following limited conclusions:
+
+- Express with disabled proxy trust uses the socket peer. `true` trusts the leftmost forwarded value and requires a trusted last proxy to remove/overwrite caller-supplied headers. Numeric hop counts depend on every route having the assumed topology. [Express behind proxies](https://expressjs.com/en/guide/behind-proxies/)
+- Cloud Run terminates public TLS and forwards requests to the container; its transport contract does not specify an authenticated client-IP field, trusted proxy CIDRs or an exact hostile-header-resistant `X-Forwarded-For` suffix for direct `run.app` requests. This is a limit of the reviewed contract, not a claim that Google never adds forwarding information. [Cloud Run container contract](https://docs.cloud.google.com/run/docs/container-contract#transport_layer_encryption_tls)
+- Google's external Application Load Balancer appends `<client-ip>,<load-balancer-ip>` after any existing `X-Forwarded-For` prefix, which it does not validate. Further downstream proxies may append addresses. Those documented positions describe that load-balancer topology; they do not establish this direct Cloud Run endpoint's topology. [Google forwarding behavior](https://docs.cloud.google.com/load-balancing/docs/https#x-forwarded-for_header)
+- The Cloud Functions header reference describes forwarded address lists for functions deployed using the Cloud Functions API; it does not provide the missing direct-service trust contract. Cloud Logging's request metadata is asynchronous operational evidence, not an authenticated synchronous identifier delivered to this middleware. [Functions headers](https://docs.cloud.google.com/functions/docs/reference/headers), [Cloud Run logging](https://docs.cloud.google.com/run/docs/logging)
+
+A Google-maintained sample historically recommended `trust proxy=1` in [PR 3586](https://github.com/GoogleCloudPlatform/nodejs-docs-samples/pull/3586). The containing sample was subsequently [removed as deprecated](https://github.com/GoogleCloudPlatform/nodejs-docs-samples/commit/2e713dd16067b68c445bfb141f887ceb63ad7a08). Removal does not prove that setting unsafe, but neither that sample nor the current service contract establishes a stable all-ingress security guarantee for this deployment. This pass therefore does not adopt a hop count.
+
+| Option | Assessment for this direct service |
+|---|---|
+| A. Socket peer / current `request.ip` | Identifies a proxy, not reliably a customer; different peers could also multiply mail capacity. |
+| B. `trust proxy=true` | Unsafe without a verified sanitizing boundary; caller-supplied prefixes must not become identities. |
+| C. Fixed hop count | No verified invariant for all permitted paths; historical sample guidance is insufficient for that assertion. |
+| D. Parse a Google-appended position | Valid only with the documented, controlled topology; do not transplant external ALB positions into direct Cloud Run. |
+| E. Platform metadata | No authenticated synchronous alternative client-IP field established by the reviewed runtime contract. |
+| F. Adjust conservative process quotas | Selected with explicit identity-free counters, rather than retaining misleading per-proxy buckets or merely increasing mail capacity. |
+
+### Implemented budgets and non-IP defenses
+
+`trust proxy` remains **false**. Admission uses neither `request.ip`, `request.socket.remoteAddress` nor any forwarded/client identifier. Two fixed-window counters replace the Map:
+
+1. **120 quote POSTs / 60 seconds / process**, before Origin/type checks and JSON parsing. All quote attempts consume this short budget; over-budget requests receive 429 before parsing.
+2. **8 mail attempts / 15 minutes / process**, after Origin/type/body/schema checks. Capacity is reserved synchronously before transport construction and SMTP awaits; configuration, transport and delivery failures count without refunds.
+
+The 120/minute initial ceiling permits modest invalid traffic without spending scarce 15-minute mail capacity. The eight-attempt mail ceiling is retained rather than raising SMTP exposure. Default time is monotonic `performance.now()`, with injectable time for deterministic expiry tests. Both budgets return fixed JSON 429 and bounded positive `Retry-After`. Health, preflight and unknown routes are exempt. Only two counters are retained, with no customer/IP identifiers. IPv4, IPv6, mapped addresses and malformed address strings in forwarding headers are ignored for admission; malformed HTTP syntax can be rejected by Node before Express. No application IP logging is introduced.
+
+Existing 64 KiB parsing, compression rejection, field validation, fixed sender/recipient, escaped mail content, TLS validation, generic provider errors and exact Origin/CORS handling remain. Origin is not authentication and non-browser callers can omit/forge it. The service remains at maximum one instance, concurrency four, CPU one, memory 512 MiB, minimum zero and timeout 60 seconds. A global submission cooldown would delay unrelated customers; a caller-selected identifier would offer trivial bypass. A honeypot would require coordinated form/schema changes and supplies only a weak supplementary signal. No honeypot, CAPTCHA, Redis, database or new infrastructure is added.
+
+Residual limits: these are shared process budgets, not per-customer fairness, a durable SMTP quota or DoS protection. Attackers can consume the short request budget or submit eight plausible quotes to block mail capacity. Fixed windows permit boundary bursts; restarts, extra processes and overlapping revisions reset/multiply capacity. Maximum instances can temporarily be exceeded. The unchanged legacy Firebase `api` function uses the same provider outside these counters. Review provider-wide/day quotas and monitoring before broad availability, and reviewed shared/edge controls before scaling. Real provider delivery/quota enforcement remains untested. [Cloud Run maximum instances](https://docs.cloud.google.com/run/docs/configuring/max-instances)
+
+### Verification and deployment boundary
+
+| Check | Result |
+|---|---|
+| `npm ci` | Pass; 168 packages installed from unchanged lockfile |
+| `node --check server/index.js` / `node --check server/app.js` | Pass |
+| `npm audit` / `npm audit --omit=dev` | Pass; zero vulnerabilities in both |
+| `npm test -- --test-reporter=dot` | Pass; **167 tests**, zero failures (162 API, 2 mail composition, 3 shutdown) |
+| `npm run build` | Pass; Vite 6.4.3, 1,595 modules |
+
+Ten new regressions cover malformed/IPv6 forwarding, unreadable `request.ip` plus simulated changing IPv4/IPv6 socket peers, pre-parser exhaustion and exempt routes, independent expiry/Retry-After, first-eligible mail-window start, concurrent reservations, process-local scope and three failure stages without refunds. Five prior invalid-attempt tests intentionally change their quota expectation: each invalid category now preserves all eight mail slots and still returns its own rejection status after mail exhaustion. Existing validation, forged-header, health and 15-minute reset coverage remains. All mail operations use injected fake transports or in-memory MIME composition; no tests load production SMTP credentials or access SMTP networks.
+
+The authorized rollout is one normal commit/push on `security-hardening`, an immutable full-SHA image in the existing Artifact Registry, and an image-only Cloud Run revision plus commit label. Preserve the existing environment, `SMTP_PASS:3`, runtime identity `globalfer-api-runtime@globalfer-site.iam.gserviceaccount.com`, public invocation/ingress and resource settings. Non-image runtime configuration is compared privately against the pre-update service. The production recipient was reused from the verified existing Firebase function, not the repository fallback. No secret payload is read, copied, printed or rotated; no IAM changes are required for this revision.
+
+After rollout, only health and malformed JSON, wrong Origin, unsupported type, small oversized-body and unknown-route checks are permitted. No valid production quote or real email is sent. Live Hosting still routes `/api/**` to the legacy Firebase function; neither is modified. Frontend connection is appropriate only as a monitored low-volume pilot with the shared-budget limitations understood, not proof of mail delivery or comprehensive abuse prevention. The next separate frontend build must use **`VITE_API_URL=https://globalfer-api-nxbq6byh4q-rj.a.run.app`**, then `npm run build:firebase`; do not deploy Hosting or test real delivery as part of this backend task. The resulting image digest and revision belong in the deployment completion report; this committed audit records the verified source behavior and rollout constraints.
+
+## Historical backend preparation: Cloud Run — 2026-09-21
+
+Cloud Run is the intended backend candidate for project `globalfer-site`; no service, actual backend HTTPS origin or cloud resources have been created. Firebase Hosting remains the frontend at `https://globalfer-site.web.app/`, with exact backend setting `FRONTEND_URL=https://globalfer-site.web.app`. `VITE_API_URL` remains unset. Firebase configuration, frontend code, dependencies and lockfile are unchanged in this preparation. The Firebase correction and earlier security evidence below are historical snapshots.
+
+### Changed runtime and deployment assumptions
+
+- Express is now API-only. The `dist/` static middleware and SPA fallback are removed; unmatched routes return a fixed JSON 404 through the existing security middleware. Firebase serves production frontend files and Vite continues to serve/proxy local development. Regression tests cover frontend/asset/unknown routes, malformed URLs, SMTP-free health and the exact production origin.
+- `npm start` still uses the injected `PORT`, with local default 3001. The existing unspecified-host listener is retained: Linux container verification confirmed wildcard binding and IPv4 reachability. Startup failures now emit only a fixed category. SIGTERM/SIGINT stop acceptance and drain active HTTP requests for at most eight seconds, within Cloud Run's normal ten-second termination window. Mail work can still be interrupted; neither this drain nor a platform timeout guarantees delivery or exactly-once behavior.
+- The explicit Dockerfile uses `node:24.21.0-bookworm-slim`, locked production dependencies, disabled install scripts, direct Node execution and the non-root `node` user. The allowlisted build context and explicit copies exclude environment files, credentials, Git metadata, host dependencies, frontend output and tests. No package engine/dependency change was needed. The tested base resolved to `sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6`; a future published application image must record its own immutable digest and receive security rebuilds.
+- `trust proxy` remains false: no verified fixed Cloud Run forwarding topology justifies trusting headers or an arbitrary hop count. The limiter uses the immediate peer, potentially grouping unrelated visitors behind Google proxies. Its eight-attempt/15-minute quota remains per process, resets on restart and is not shared between instances/revisions. The proposed service maximum of one instance is not a global quota and can briefly be exceeded. A monitored low-volume pilot requires explicit acceptance of this limitation, observed proxy behavior and provider limits; broader availability needs aggregate abuse controls. No shared store, Cloud Armor or other infrastructure is added.
+- Public browser invocation will require a separately approved public ingress/access model. CORS/Origin filtering is not authentication; bots can omit or forge Origin. Existing validation, body limits, fixed recipient, SMTP protections and forged-forwarding-header tests remain intact. A later Firebase rewrite alone would neither authenticate the backend nor fix rate limits; `firebase.json` has no new rewrite.
+- Production mail should use provider-supported port 465 with `SMTP_SECURE=true`, retaining certificate verification. The existing 587/false mode is opportunistic STARTTLS and must not be represented as enforced TLS; using it in production requires a separately tested fail-closed policy. Existing SMTP timeouts, escaped HTML, controlled sender/recipient fields and generic error handling are unchanged. Provider connectivity, sender authorization, quotas and any static-egress requirements remain unverified.
+- `SMTP_PASS` should map to a pinned Secret Manager version; private `SMTP_USER` may use the same mechanism. Ordinary host/port/origin/address settings need no secret store solely because they are configuration. The [README environment inventory and deployment plan](README.md#backend-deployment--cloud-run) list all ten backend variables, least-privilege runtime identity recommendations and unapplied service/region options. No secrets, keys, IAM grants, APIs or cloud deployment commands were created or executed.
+- Health remains the quick, quota-exempt `{ "ok": true }` response without SMTP, version or environment disclosure. Application stdout/stderr retains fixed categories, including startup/shutdown; Cloud Logging's separate platform request metadata still requires access/retention review. No request bodies, customer details or raw provider errors are added to logs.
+
+### Verification of Cloud Run preparation
+
+| Check | Result |
+|---|---|
+| `npm ci` | Pass; 168 packages installed, lockfile unchanged |
+| `node --check server/index.js`, `server/app.js`, `server/shutdown.js` | Pass |
+| `npm audit` / `npm audit --omit=dev` | 0 vulnerabilities in each |
+| `npm test` on Windows Node 24.15.0 | 157 passed, 0 failed, 0 skipped; all previous tests preserved |
+| Same suite in Linux Node 24.21.0 container | 157 passed, 0 failed, 0 skipped; network disabled, filesystem/tests read-only |
+| `npm run build` | Pass; Vite 6.4.3, 1,595 modules |
+| Local Vite integration | Frontend/JSX, API health, invalid quote and exact local-origin proxy behavior pass without SMTP |
+| Linux amd64 container | Builds successfully; UID 1000; backend runtime only, no credentials, frontend output or development dependencies |
+| Container runtime smoke checks | Injected port/wildcard listener, safe health/404/Origin behavior, fixed startup failure and actual SIGTERM exit 0 pass; no SMTP credentials, network disabled |
+| Final diff and secret/artifact review | Exactly nine intended files; no suspected actual secrets, service-account JSON, environment files or generated artifacts added; required keyword hits are references/placeholders/test fixtures |
+
+Local verification created a review image only, with no registry upload. Temporary containers and local development servers were stopped after checks. Real SMTP, Firebase/Cloud Run deployment, IAM changes, API enablement and Secret Manager creation were not performed. The code/container are ready for deployment review; production remains conditional on the README's manual prerequisites and controlled verification after separate authorization.
+
+## Firebase frontend correction snapshot — 2026-09-21
+
+The user verified Firebase/Google Cloud project `globalfer-site` and the intended frontend URL `https://globalfer-site.web.app/`. **Firebase Hosting serves the frontend.** The exact production frontend origin, and required backend setting, is `FRONTEND_URL=https://globalfer-site.web.app` (no trailing slash or path). The earlier GitHub Pages deployment analysis below is historical and superseded.
+
+The Express backend remains separate. Its provider and real HTTPS origin are not selected or configured in this task. `VITE_API_URL` remains public build configuration with no guessed value. Existing CORS, validation, rate limiting, SMTP behavior, security tests and Express headers are unchanged.
+
+Deployment-only changes:
+
+- Vite now defaults to `/`, retaining `VITE_BASE_PATH` for special builds and the existing loopback host, port 5173, strict port and `/api` development proxy.
+- New `firebase.json` publishes `dist`, supports SPA navigation, and excludes `/api` and `/api/**` from the index rewrite. These API paths return 404 on Hosting. No backend rewrite or provider is configured.
+- New `.firebaserc` maps only the verified default project `globalfer-site`; the identifier is public configuration, not a credential. During emulator startup the installed CLI used the existing signed-in session for read-only project/site discovery, confirming default site `globalfer-site` and URL `https://globalfer-site.web.app`.
+- The Pages workflow and `public/.nojekyll` are removed from this branch. No Firebase deployment workflow replaces them yet. `main`, existing security commits and remote hosting settings remain untouched.
+- `npm run build` stays available without an API origin for local verification. The Hosting predeploy hook invokes `npm run build:firebase`, which requires a separate HTTPS API origin and root base, then rebuilds so stale unconfigured output is not uploaded. No Contact.jsx change is needed.
+- Static Hosting responses gain nosniff, strict-origin-when-cross-origin, DENY framing and camera/microphone/geolocation restrictions. No CSP is introduced. Firebase controls HSTS on `web.app`; a separate custom-domain policy is not assumed.
+- All static responses revalidate with `Cache-Control: no-cache`. Hashed bundles and unhashed public images share `/assets/`; selective long-lived bundle caching is deferred rather than applying blanket immutable caching. A supported `regex: ".*"` header rule avoids the installed Windows CLI's glob-normalization issue.
+- `.firebase/` and temporary `gha-creds-*.json` files are ignored. Existing log and environment exclusions remain.
+
+No Firebase configuration, cache, debug log, backup or Hosting workflow was found in this clone's local project files or nine-commit history before these additions. No configuration could be restored. Firebase CLI 15.16.0 is installed; a known CLI metadata file exists, but its contents were not manually inspected. The CLI reused its existing session (including its automatic token refresh) for metadata reads. No login/logout, project mutation or deployment was performed. The user's earlier initialization outside this permitted checkout cannot be established from that evidence.
+
+The backend is generally cloud-deployable: it supports injected `PORT` (default 3001), listens on an unspecified host, uses portable paths and environment-supplied SMTP settings, and starts without a local `.env` or `dist`. Its optional static fallback needs `dist/index.html` when used. Actual hosting, outbound SMTP, HTTPS, exact proxy trust and aggregate quotas/monitoring still require separate verification; no provider is selected and proxy trust remains false.
+
+Future GitHub deployment should use Workload Identity Federation/OIDC with a dedicated service account and Firebase CLI Application Default Credentials. README describes the manual API/IAM/provider/repository restrictions and documented Hosting roles. No account identifiers beyond the verified project are invented, and no long-lived key, token, secret or deploy workflow is created. The legacy workflow's Node 20 configuration is removed with that workflow; a future workflow must use a maintained runtime.
+
+References: [Hosting routing/headers](https://firebase.google.com/docs/hosting/full-config), [cache behavior](https://firebase.google.com/docs/hosting/manage-cache), [Firebase CLI CI authentication](https://firebase.google.com/docs/cli#cli-ci-systems), [Google federation](https://docs.cloud.google.com/iam/docs/workload-identity-federation-with-deployment-pipelines). These changes prepare local configuration only; they do not establish a live deployment or working production mail submission.
+
+### Verification of the Firebase correction
+
+Verified locally with Node 24.15.0, npm 11.12.1 and Firebase CLI 15.16.0:
+
+| Check | Result |
+|---|---|
+| `npm ci` | Pass; 168 packages installed |
+| Syntax checks: server/index.js, server/app.js, scripts/build-firebase.mjs | Pass |
+| `npm audit` / `npm audit --omit=dev` | 0 vulnerabilities in each |
+| `npm test` | 146 passed, 0 failed, 0 skipped; existing fake/in-memory SMTP tests unchanged |
+| `npm run build` | Pass; Vite 6.4.3, 1,595 modules |
+| Generated JS/CSS | Root `/assets/` paths; no `/globalfer-site/assets/` prefix |
+| Public assets | All 12 copied byte-identically; all 14 built/public assets served with correct content types |
+| Firebase configuration | Pass against the installed CLI's JSON schema and Hosting emulator |
+| Hosting HTTP validation | 27 checks passed: 3 HTML/navigation responses, 10 GET/POST API 404s, 14 assets; all carry the four configured security headers and `no-cache` |
+| Deployment build guard | Nine invalid/missing-origin cases rejected before build/upload; previous local output unchanged |
+| Project/site discovery | CLI confirmed active project `globalfer-site`, default site `globalfer-site`, and `https://globalfer-site.web.app` using its existing session |
+| Deployment diff/secret review | Only the 10 intended deployment paths; no actual credentials, service-account keys or environment files added; application/security code and lockfile unchanged |
+
+The first emulator header check exposed a Windows-specific `glob-slasher` normalization issue in the installed CLI: positive header globs failed to match and a negated asset glob matched too broadly. Replacing those header rules with one supported RE2 regex resolved the issue; the final schema and HTTP checks passed. API rewrite exclusions worked in both runs. The emulator was stopped after validation. No live deployment, SMTP connection, message delivery, login/logout or IAM/project mutation was performed.
+
+## Migration onto verified GitHub history — 2026-09-21
+
+This section records the migration-completion snapshot, before the authorized commit and publication pass. Its GitHub Pages assumptions are superseded by the Firebase correction above. The dependency audit and original verification sections below retain the history of the earlier work in the isolated OneDrive directory; their unborn-branch remarks describe that source only. Consult this branch's Git history for subsequent commits.
+
+| Item | Verified result |
+|---|---|
+| Clean checkout | `C:\github\globalfer-secure` |
+| Remote | `https://github.com/fernandoh88/globalfer-site.git` |
+| Remote default branch | main |
+| Main/base commit | `c5809a285b91df58dec8d026110c02242434aa30` |
+| Working branch | security-hardening, created from origin/main |
+| Preserved history | c5809a2 → 92cde2d → 29fc146; three real commits |
+| Commits/pushes/merges/deployments in this migration | None |
+| Original directory | Preserved; no source files or old Git metadata imported wholesale |
+
+The destination did not exist before cloning. The clone initially had a clean main matching origin/main. No root commit was invented, no main content changed, and no history was rewritten. The old staged snapshot was not imported. At migration completion, only the two authorized runtime-log removals described below were staged; code/configuration changes were unstaged and new files untracked.
+
+### Approved transfer and comparison
+
+The working contents of these 13 files were copied individually and byte-verified before migration-specific adjustments:
+
+```text
+package.json
+package-lock.json
+server/index.js
+server/app.js
+tests/nodemailer.test.js
+tests/server.test.js
+src/components/Contact.jsx
+vite.config.js
+.gitignore
+README.md
+.github/dependabot.yml
+.github/workflows/deploy.yml
+SECURITY-AUDIT.md
+```
+
+No .git, .env files, node_modules, dist, logs, temporary review files or other source files were copied. The .env.example in this clone comes from real main and was retained unchanged.
+
+Comparison found **no additional security-related changed/untracked source files outside the approved list**. The source .env.example differs from the remote example but was not transferred; current and historical examples were checked for credentials. Other nonapproved text differences were only line endings/BOM, and the real repository versions were retained.
+
+Adjustments made only in this clone after copying:
+
+- Expanded .gitignore for build/, coverage/, general logs, editor directories and OS metadata, keeping .env.example trackable.
+- Preserved real main's existing `/globalfer-site/` Vite base instead of importing the source directory's stale `/GlobalferWebsite/` base. The security-related host/port/strictPort settings remain. This avoids a deployment regression and does not guess a new production URL.
+- Updated README and this report with real history, current verification, deployment requirements and safe reproduction instructions.
+- Removed generated runtime logs from the index with `git rm --cached -- server-error.log server-output.log`; both files remain on disk and are now ignored.
+
+### Runtime-log and secret review
+
+Both log paths were tracked in real main. All reachable versions in the three-commit history were inspected without printing their contents:
+
+| Information category | server-error.log | server-output.log |
+|---|---|---|
+| File content | Empty | One startup-status line |
+| SMTP usernames/passwords, tokens, credentials | None detected | None detected |
+| Environment-variable values/names | None detected | None detected |
+| Email addresses or quote payloads | None detected | None detected |
+| Stack traces or filesystem paths | None detected | None detected |
+| Internal operational details | None | Local HTTP startup endpoint only |
+
+Historical and current .env.example SMTP credential fields are placeholders; an original quote-recipient email is an identity/configuration value, not an authentication secret. Neither the logs nor examples matched actual configured secret values compared privately in memory. No evidence requiring credential rotation was found in these inspected historical paths. History remains intact, including the old log objects.
+
+The reviewed application changes contain no suspected actual credentials; credential-looking test strings are fake fixtures. Secret scans report only path/line/type if a real suspect is found, never values. The clone contains no real .env file.
+
+### Fresh-clone verification
+
+Verification ran with Node **24.15.0** and npm **11.12.1** in this clone, using the copied lockfile without dependency regeneration:
+
+| Command/check | Result |
+|---|---|
+| `npm ci` | Pass; 168 packages installed |
+| `node --check server/index.js` | Pass |
+| `node --check server/app.js` | Pass |
+| `npm audit` | Pass; 0 vulnerabilities |
+| `npm audit --omit=dev` | Pass; 0 vulnerabilities |
+| `npm test` | Pass; 146 passed, 0 failed, 0 skipped |
+| `npm run build` | Pass; Vite 6.4.3, 1,595 modules |
+| Build after retaining main's Pages base | Pass; generated asset references use /globalfer-site/assets/ |
+| `npm ls nodemailer vite express` | Nodemailer 9.1.1, Vite 6.4.3, Express 4.22.3 |
+
+The API and mail-composition tests inject SMTP fakes or use an in-memory stream transport with a socket guard. No real SMTP connection or email delivery occurred. All required verification results match the earlier reviewed state. Different output asset hashes/sizes are expected from the retained real-main files and corrected repository base.
+
+### Superseded GitHub Pages configuration analysis at migration time
+
+The workflow then supplied **no VITE_API_URL**. Contact.jsx constructed `${import.meta.env.VITE_API_URL || ''}/api/orcamento`. Under the former Pages assumption, an unconfigured build would post to the Pages origin, where Express does not run. This production-host assumption was incorrect and is superseded; static build success alone still does not establish working mail submission.
+
+The migration retained main's `/globalfer-site/` base under the former Pages assumption; live hosting settings were not queried. The current Firebase correction replaces that base with `/` and removes the obsolete deployment workflow. No backend URL was invented or deployed in either pass.
+
+The earlier Pages-origin recommendation is withdrawn. Current production requires `FRONTEND_URL=https://globalfer-site.web.app`, with no path or trailing slash. Before deployment verify HTTPS, proxy trust, shared/aggregate mail quotas and HSTS coverage as detailed below.
+
+The former workflow retained Node 20. All locked packages with declared Node engines admitted that runtime; packages without declarations make no engine guarantee. That workflow is now removed. Any future CI must use a maintained runtime; production's actual Node runtime remains unknown. See the [official Node schedule](https://raw.githubusercontent.com/nodejs/Release/main/schedule.json).
+
+### Review state and commit plan at migration completion
+
+This branch is ready for human code review on real history. It is not deployed and should not be treated as production-ready until the API/origin/proxy settings are confirmed. At migration completion, only generated log removals were staged; the obsolete initial application snapshot was not imported into the index.
+
+The migration review proposed these groups for the subsequent authorized commit pass:
+
+1. Dependency remediation: package.json/package-lock.json (keep manifest and lock changes together).
+2. API hardening: server/index.js and server/app.js together.
+3. Security regression tests: both tests; the npm test script may be grouped here by reviewing its package.json hunk.
+4. Contact behavior and development configuration: Contact.jsx and the Vite development-server settings, preserving the existing production base.
+5. Security automation/documentation: workflow permissions, Dependabot, README and this report.
+6. Generated-artifact hygiene: .gitignore and the two runtime-log removals.
+
+During migration, no blanket staging, commit, push, merge, reset, clean, history rewrite or deployment was performed.
+
+
+## Architecture summary
+
+Globalfer is a React 18/Vite single-page frontend (`src/`) served by Firebase Hosting at the intended `https://globalfer-site.web.app/` URL. The separate Express 4 backend (`server/index.js` bootstrap, `server/app.js` application, `server/shutdown.js` lifecycle) exposes `GET /api/health` plus `POST /api/orcamento`, validating quote data and sending email through Nodemailer/SMTP. It is API-only, with no `dist/` static serving or SPA fallback. Configuration comes from environment variables; Cloud Run is the intended candidate but has not been deployed and no real API origin exists yet. There is no database, authentication, admin area, upload flow or payment integration in this checkout. No automated deployment workflow is enabled in this branch.
+
+## Findings
+
+### [SEC-001] Missing baseline HTTP security headers
+Severity: Medium
+
+Location: `server/index.js` (Express setup)
+
+Description: The server did not set security headers such as content-type sniffing protection, frame protection, referrer policy, or HSTS.
+
+Risk: Browser-based attacks and information leakage are easier if the service is deployed publicly.
+
+Evidence: No header middleware or equivalent response-header configuration was present.
+
+Remediation: Add conservative headers that do not require a frontend rewrite; enable HSTS only for HTTPS deployments.
+
+### [SEC-002] Quote endpoint lacks abuse/rate limiting
+Severity: Medium
+
+Location: `server/index.js:POST /api/orcamento`
+
+Description: Any caller can repeatedly trigger SMTP work and email delivery.
+
+Risk: Mail abuse, provider quota exhaustion, and denial of service.
+
+Evidence: The route had validation and a body-size limit but no request-frequency control.
+
+Remediation: Add an in-memory per-IP limiter suitable for a single instance and use a shared store at scale.
+
+### [SEC-003] Validation permits unbounded individual strings and does not reject malformed bodies
+Severity: Medium
+
+Location: `server/index.js:validateQuote`
+
+Description: Names, phone numbers, cities, messages, product names, and measurements were trimmed but had no maximum lengths/type enforcement.
+
+Risk: Excessive memory/mail payloads and operational abuse; malformed JSON values could produce confusing errors.
+
+Evidence: `sanitize()` coerced arbitrary values with `String()`.
+
+Remediation: Require a plain object, enforce field length limits, and reject invalid item shapes while preserving the existing form.
+
+### [SEC-004] Dependency vulnerabilities reported by npm audit
+Severity: High
+
+Location: `package-lock.json`
+
+Description: `npm audit --omit=dev` reported 4 high and 3 moderate advisories, including Nodemailer and Vite transitive/direct dependencies.
+
+Risk: Depending on exploitability and deployment exposure, crafted requests or build/development activity could cause denial of service, path traversal, or SMTP-related issues.
+
+Evidence: Audit output identified vulnerable ranges for `nodemailer`, `vite`, `nanoid`, `postcss`, `body-parser`, and `qs`.
+
+Remediation: Upgrade in a separately reviewed dependency change; major upgrades (Nodemailer 10/Vite 8) may require compatibility testing. No force upgrade was applied in the first hardening pass; the follow-up below resolves all reported advisories with smaller compatible release choices.
+
+### [SEC-005] Production error response distinguishes SMTP authentication failures
+Severity: Low
+
+Location: `server/index.js` SMTP error handler
+
+Description: Clients receive a provider-specific authentication failure message.
+
+Risk: Leaks operational configuration details and gives attackers a useful signal.
+
+Evidence: The `EAUTH` branch returned SMTP/Gmail setup guidance.
+
+Remediation: Return one generic error to clients. The follow-up below also restricts logs to fixed categories, without raw provider details.
+
+## Inventory
+
+| Method | Path | Auth | Validation | Rate limited | Data/concern |
+|---|---|---|---|---|---|
+| GET | `/api/health` | No | None | No | Health status only |
+| POST | `/api/orcamento` | No | Server-side quote validation | Yes (after fix) | Sends SMTP email; public form abuse risk |
+
+## Summary
+
+| ID | Severity | Vulnerability | Location | Status |
+|---|---|---|---|---|
+| SEC-001 | Medium | Missing security headers | server/index.js | Fixed |
+| SEC-002 | Medium | No abuse rate limit | server/index.js | Fixed |
+| SEC-003 | Medium | Weak/unbounded input validation | server/index.js | Fixed |
+| SEC-004 | High | Vulnerable dependency ranges | package-lock.json | Fixed; see Dependency Remediation |
+| SEC-005 | Low | SMTP detail in client errors | server/index.js | Fixed |
+
+No secrets were printed. `.env` is ignored and not tracked in this checkout; rotate SMTP credentials if they were ever committed elsewhere or exposed in Git history.
+
+## Dependency Remediation
+
+Original dependency review on 2026-09-21 took place in the OneDrive source's unborn `security-hardening` branch. That source had no commits; its pre-existing index was preserved. This section records that earlier review. The migration section above describes the current clone on real GitHub history. No `npm audit fix --force` was used.
+
+### Audit counts and scope
+
+Counts below are npm's affected-package counts, including propagated findings, not counts of distinct exploitable bugs. The initial full audit contained **30 individual advisories across 12 affected packages**. Each advisory was read via the GitHub Advisory API, including its trigger conditions and patched versions; all are assessed below against Globalfer's actual use.
+
+| Audit | Critical | High | Moderate | Low | Total |
+|---|---:|---:|---:|---:|---:|
+| BEFORE `npm audit --omit=dev` (reproduces previous audit) | 0 | 4 | 3 | 0 | 7 |
+| BEFORE `npm audit` (including development) | 2 | 5 | 4 | 1 | 12 |
+| AFTER `npm audit --omit=dev` | 0 | 0 | 0 | 0 | 0 |
+| AFTER `npm audit` | 0 | 0 | 0 | 0 | 0 |
+
+**Remaining advisories: none reported by either audit at verification time.** This establishes resolution of known npm advisories, not proof that the application has no vulnerabilities. Vite was moved to `devDependencies` because production Express serves prebuilt `dist/`; the full development-inclusive audit is also clean, so this move does not conceal unresolved findings.
+
+### Dependency versions and compatibility
+
+“Current” means the exact original lockfile version, not the older caret minimum in package.json. “Fixed/installed” is the exact selected final lockfile version; the next table records each advisory's first patched version. Severity is npm's package-level maximum and may be propagated.
+
+| Package | Current | Fixed/installed | Severity | Direct/Transitive | Introduced By | Breaking Risk |
+|---|---|---|---|---|---|---|
+| @babel/core | 7.29.0 | 7.29.7 | low | Transitive | @vitejs/plugin-react → Babel | Patch; trusted compilation behavior |
+| baseline-browser-mapping | 2.10.27 | 2.11.25 | moderate | Transitive | @vitejs/plugin-react → Babel → browserslist | Minor; invalid arguments now throw |
+| body-parser | 1.20.5 | 1.20.8 | moderate | Transitive | express | Patch; rejects invalid parser limits |
+| browserslist | 4.28.2 | 4.29.0 | high | Transitive | @vitejs/plugin-react → Babel | Minor; query cache/statistics fixes |
+| concurrently | 9.2.1 | 9.2.4 | critical | Direct | Root developer scripts → shell-quote | Patch; fixed script commands retained |
+| esbuild | 0.21.5 | 0.25.12 | moderate | Transitive | vite | 0.x minor changes via Vite major; native platform binaries |
+| nanoid | 3.3.12 | 3.3.19 | high | Transitive | vite → postcss | Patch; no app generator API use |
+| nodemailer | 6.10.1 | 9.1.1 | high | Direct | Root SMTP dependency | Major 6 → 9; reviewed below |
+| postcss | 8.5.13 | 8.5.28 | high | Transitive | vite | Patch; stricter source-map access |
+| qs | 6.15.1, 6.14.2 | 6.16.0 | moderate | Transitive | express and express → body-parser | Minor; nested duplicate removed |
+| shell-quote | 1.8.3 | 1.9.0 | critical | Transitive | concurrently | Minor; invalid operators rejected |
+| vite | 5.4.21 | 6.4.3 | high | Direct | Root build tool | Major 5 → 6; reviewed below |
+| express | 4.22.1 | 4.22.3 | No direct advisory | Direct | Root API dependency | Patch; stays on Express 4 |
+
+React and react-dom remain **18.3.1**, @vitejs/plugin-react remains **4.7.0**, and lucide-react remains **0.468.0**. No application library was replaced, no dependency overrides were added, and tests use Node's built-in test runner. The Node compatibility declaration now matches Vite's supported major lines and raises the Node 18 floor to 18.13 for mock.method/test cleanup APIs; tests use `node --test` discovery rather than shell globs, which older Windows runtimes do not expand. Use a supported LTS runtime in production, not the legacy compatibility minimum. See the [Node test API](https://nodejs.org/download/release/v18.20.3/docs/api/test.html#mockmethodobject-methodname-implementation-options) and [Node release status](https://nodejs.org/en/about/previous-releases).
+
+The major upgrades were explained and checked before installation:
+
+- **Vite 5.4.21 → 6.4.3:** the listed Vite fixes have no Vite 5 backport; 6.4.3 also admits patched esbuild 0.25.x. This is the smallest Vite major covering all reported advisories; the audit's automatic suggestion of Vite 8.3.0 was unnecessary. Reviewed the [Vite 6 migration guide](https://v6.vite.dev/guide/migration): custom resolution conditions, Sass APIs, TS/YAML PostCSS configuration, library CSS names, custom glob patterns and SSR/internal APIs are not used. Globalfer uses an ESM config, standard React plugin, ordinary CSS modules and a simple /api proxy. The installed React plugin's peer range supports Vite 6. No vite.config.js rewrite was needed; build and browser smoke tests pass.
+- **Nodemailer 6.10.1 → 9.1.1:** versions through 9.1.0 are affected by at least one reported advisory. Reviewed the [upstream changelog](https://github.com/nodemailer/nodemailer/blob/master/CHANGELOG.md): v7 replaces legacy SES integration; v8 renames NoAuth to ENOAUTH; v9 validates HTTPS certificates for remote content/token fetching and changes URL handling. Globalfer uses SMTP host/port/user/password and await sendMail with generated text/HTML, no SES, OAuth2, remote attachments, plugins or NoAuth branch. Those API changes need no application adaptation. Certificate checks were not weakened. Version 10's additional Node 20 minimum and module/TypeScript migration were avoided. The installed mail composer is exercised with an in-memory stream transport.
+- **Express stays on 4:** no Express 5 route-pattern migration is required.
+- **Tooling transitives:** compatible patch/minor releases resolve Babel, Browserslist, PostCSS, Nano ID and shell-quote findings. esbuild's pre-1.0 minor upgrade is carried by Vite's supported dependency range; all platform binary entries track 0.25.12.
+
+Installation groups and lockfile review:
+
+1. `npm install express@^4.22.3 nodemailer@^9.1.1`: Express/Nodemailer, qs 6.16.0 and side-channel patch changed; inspected exact lockfile version differences.
+2. `npm install --save-dev vite@^6.4.3`: Vite/esbuild and matching optional platform binaries changed; tinyglobby/fdir/picomatch were added by Vite. Inspected version changes and dev classification.
+3. `npm install --save-dev concurrently@^9.2.4`: removes its exact vulnerable shell-quote pin. Then `npm update body-parser @babel/core baseline-browser-mapping browserslist postcss nanoid` and `npm install`: compatible transitives refreshed; duplicate body-parser/qs 6.15.1 removed in favor of qs 6.16.0. Audits became clean.
+4. Added the `npm test` script, ran `npm install` again, and verified reproducibility with `npm ci`.
+
+Other lockfile version changes introduced by these dependency groups:
+
+| Package | Before | After |
+|---|---|---|
+| @babel/code-frame | 7.29.0 | 7.29.7 |
+| @babel/compat-data | 7.29.3 | 7.29.7 |
+| @babel/generator | 7.29.1 | 7.29.8 |
+| @babel/helper-compilation-targets | 7.28.6 | 7.29.7 |
+| @babel/helper-globals | 7.28.0 | 7.29.7 |
+| @babel/helper-module-imports | 7.28.6 | 7.29.7 |
+| @babel/helper-module-transforms | 7.28.6 | 7.29.7 |
+| @babel/helper-string-parser | 7.27.1 | 7.29.7 |
+| @babel/helper-validator-identifier | 7.28.5 | 7.29.7 |
+| @babel/helper-validator-option | 7.27.1 | 7.29.7 |
+| @babel/helpers | 7.29.2 | 7.29.7 |
+| @babel/parser | 7.29.3 | 7.29.9 |
+| @babel/template | 7.28.6 | 7.29.7 |
+| @babel/traverse | 7.29.0 | 7.29.8 |
+| @babel/types | 7.29.0 | 7.29.8 |
+| caniuse-lite | 1.0.30001791 | 1.0.30001810 |
+| electron-to-chromium | 1.5.349 | 1.5.433 |
+| node-releases | 2.0.38 | 2.0.56 |
+| side-channel | 1.1.0 | 1.1.1 |
+| update-browserslist-db | 1.2.3 | 1.3.3 |
+
+New transitive packages: fdir **6.5.0**, picomatch **4.0.7**, tinyglobby **0.2.17**. Existing @esbuild platform packages changed **0.21.5 → 0.25.12**; netbsd-arm64, openbsd-arm64 and openharmony-arm64 platform packages were added at **0.25.12**. Rollup remains **4.60.2**. Platform entries for non-Windows systems remain in the portable lockfile.
+
+### Individual advisory assessment
+
+Installed version, direct/transitive relationship, top-level introducer and compatibility risk are given in the preceding package table and apply to each row below. Affected ranges here are the npm audit ranges relevant to the originally installed release line; the linked advisories include other release lines. “Not reached” is an assessment of current code/configuration, not a reason to leave a vulnerable package installed.
+
+| Package / advisory | Vulnerable range | First fixed on relevant line | Severity | Trigger and relevance to Globalfer |
+|---|---|---|---|---|
+| @babel/core: [GHSA-4x5r-pxfx-6jf8](https://github.com/advisories/GHSA-4x5r-pxfx-6jf8) | `<=7.29.0` | 7.29.6 | low | Source-map file read while compiling attacker-controlled JS. Build tooling only; quote input is never compiled. Trusted repository sources still need review. |
+| baseline-browser-mapping: [GHSA-w5vr-8v7q-w6rv](https://github.com/advisories/GHSA-w5vr-8v7q-w6rv) | `>=2.0.0 <2.11.0` | 2.11.0 | moderate | Invalid browser-mapping arguments terminate the process. Build-only fixed configuration; no visitor-controlled mapping arguments. |
+| body-parser: [GHSA-v422-hmwv-36x6](https://github.com/advisories/GHSA-v422-hmwv-36x6) | `<1.20.6` | 1.20.6 | low | Invalid parser limit silently removes body cap. JSON parser is reachable, but the existing literal 120kb was valid; new literal 64kb is tested. |
+| browserslist: [GHSA-c83g-rgw3-j3cx](https://github.com/advisories/GHSA-c83g-rgw3-j3cx) | `<=4.28.6` | 4.28.7 | high | Unbounded distinct-query cache. Build-time browser queries only; no request-controlled queries or persistent web-facing Browserslist service. |
+| browserslist: [GHSA-73wf-gq98-2v4g](https://github.com/advisories/GHSA-73wf-gq98-2v4g) | `<=4.28.6` | 4.28.7 | high | Malformed custom browser statistics can crash/write prototypes. No user-supplied statistics; build workspace must remain trusted. |
+| esbuild: [GHSA-67mh-4wv8-2f99](https://github.com/advisories/GHSA-67mh-4wv8-2f99) | `<=0.24.2` | 0.25.0 | moderate | esbuild serve CORS reads. Vite invokes transform/build, not esbuild's standalone serve API; not reached through production Express. |
+| nanoid: [GHSA-28wg-ghj8-5hjv](https://github.com/advisories/GHSA-28wg-ghj8-5hjv) | `<3.3.16` | 3.3.16 | high | Negative size hangs non-secure ID generation. PostCSS dependency only; no visitor-supplied generator sizes. UI uses crypto.randomUUID. |
+| nanoid: [GHSA-2v37-7h3g-55p8](https://github.com/advisories/GHSA-2v37-7h3g-55p8) | `<3.3.18` | 3.3.18 | high | Zero size hangs custom ID generators. No visitor-controlled size or custom generator; same build-only PostCSS path. |
+| nodemailer: [GHSA-mm7p-fcc7-pg87](https://github.com/advisories/GHSA-mm7p-fcc7-pg87) | `<7.0.7` | 7.0.7 | moderate | Quoted address misrouting. Address parsing runs, but all address headers come from trusted configuration, never quote fields. |
+| nodemailer: [GHSA-c7w3-x93f-qmm8](https://github.com/advisories/GHSA-c7w3-x93f-qmm8) | `<8.0.4` | 8.0.4 | low | SMTP injection through envelope.size. Application never supplies a custom envelope or size; incoming extra fields now rejected. |
+| nodemailer: [GHSA-vvjj-xcjg-gr5g](https://github.com/advisories/GHSA-vvjj-xcjg-gr5g) | `<=8.0.4` | 8.0.5 | moderate | CRLF in transport EHLO name. Application does not accept or set the transport name option from requests; unrelated to quote name/subject. |
+| nodemailer: [GHSA-268h-hp4c-crq3](https://github.com/advisories/GHSA-268h-hp4c-crq3) | `<=8.0.8` | 8.0.9 | moderate | List-header comment injection. No list message option, mailing-list feature, or visitor-controlled header object. |
+| nodemailer: [GHSA-wqvq-jvpq-h66f](https://github.com/advisories/GHSA-wqvq-jvpq-h66f) | `<=8.0.8` | 8.0.9 | moderate | JSON transport/content normalization bypasses file/URL restrictions. Production uses SMTP with generated string bodies, no content objects, attachments or attachDataUrls. |
+| nodemailer: [GHSA-r7g4-qg5f-qqm2](https://github.com/advisories/GHSA-r7g4-qg5f-qqm2) | `<=8.0.7` | 8.0.8 | moderate | OAuth2 HTTPS certificate validation. This app uses configured SMTP user/password, no OAuth token fetching or remote content. |
+| nodemailer: [GHSA-rcmh-qjqh-p98v](https://github.com/advisories/GHSA-rcmh-qjqh-p98v) | `>=3.0.0 <=7.0.10` | 7.0.11 | high | Recursive address parsing DoS. Only trusted configured addresses reach the parser; quote text/name is not an address. |
+| nodemailer: [GHSA-p6gq-j5cr-w38f](https://github.com/advisories/GHSA-p6gq-j5cr-w38f) | `<=9.0.0` | 9.0.1 | high | Raw-message file read/SSRF bypass. No raw message option; whitelist prevents forwarding arbitrary request properties to sendMail. |
+| nodemailer: [GHSA-8m3c-c648-2xjj](https://github.com/advisories/GHSA-8m3c-c648-2xjj) | `<=9.1.0` | 9.1.1 | moderate | Legacy resolveContent access-policy bypass. No custom Nodemailer plugins or calls to that API; generated string bodies only. |
+| nodemailer: [GHSA-wmmp-3585-3rmp](https://github.com/advisories/GHSA-wmmp-3585-3rmp) | `<9.1.0` | 9.1.0 | moderate | IDN recipient-domain validation mismatch. No visitor-supplied recipients/domain allow-list; configured destination remains trusted. |
+| nodemailer: [GHSA-2x7j-588g-ccc2](https://github.com/advisories/GHSA-2x7j-588g-ccc2) | `<9.1.0` | 9.1.0 | high | Quadratic address-list parsing DoS. No attacker address lists; recipients come from configuration. The payload cap also bounds visitor text. |
+| nodemailer: [GHSA-cc9r-2j5m-2m83](https://github.com/advisories/GHSA-cc9r-2j5m-2m83) | `>=6.9.16 <9.1.0` | 9.1.0 | moderate | Comment-based recipient-domain mismatch. No raw visitor address or domain validation path; destination never read from request. |
+| postcss: [GHSA-fxqj-rqcc-2cmp](https://github.com/advisories/GHSA-fxqj-rqcc-2cmp) | `<=8.5.22` | 8.5.23 | moderate | Previous-map file disclosure without from option. Build-only CSS processing; no visitor CSS is accepted or compiled. |
+| postcss: [GHSA-r28c-9q8g-f849](https://github.com/advisories/GHSA-r28c-9q8g-f849) | `<=8.5.17` | 8.5.18 | high | Previous-map traversal/disclosure. Same trusted CSS build path; not reachable from quote submissions. |
+| qs: [GHSA-q8mj-m7cp-5q26](https://github.com/advisories/GHSA-q8mj-m7cp-5q26) | `>=6.11.1 <=6.15.1` | 6.15.2 | moderate | Comma-array stringify crash. Express parses queries; app never calls qs.stringify with these options. |
+| qs: [GHSA-x5fp-wj9c-mxmx](https://github.com/advisories/GHSA-x5fp-wj9c-mxmx) | `>=6.14.2 <=6.15.3` | 6.16.0 | moderate | Bracket-key array-limit bypass with comma:true. Express query parsing is reachable but comma mode is not enabled; no URL-encoded body parser. |
+| qs: [GHSA-4mjr-xmp4-gh2g](https://github.com/advisories/GHSA-4mjr-xmp4-gh2g) | `>=2.2.5 <6.16.0` | 6.16.0 | moderate | Attacker constructor.isBuffer crashes stringify. No parse-to-stringify round trip or qs.stringify use in application. |
+| shell-quote: [GHSA-w7jw-789q-3m8p](https://github.com/advisories/GHSA-w7jw-789q-3m8p) | `>=1.1.0 <=1.8.3` | 1.8.4 | critical | Shell injection through crafted object operators. concurrently runs fixed developer commands, never form input; no public command-execution endpoint. |
+| shell-quote: [GHSA-395f-4hp3-45gv](https://github.com/advisories/GHSA-395f-4hp3-45gv) | `<=1.8.4` | 1.9.0 | high | Quadratic token parsing DoS. Fixed, short developer script commands only; no attacker-controlled command strings. |
+| vite: [GHSA-4w7w-66w2-5vf9](https://github.com/advisories/GHSA-4w7w-66w2-5vf9) | `<=6.4.1` | 6.4.2 | moderate | Vite development source-map traversal. Not production Express; network exposure is not configured, but unsafe dev-server exposure would make it relevant. |
+| vite: [GHSA-v6wh-96g9-6wx3](https://github.com/advisories/GHSA-v6wh-96g9-6wx3) | `<=6.4.2` | 6.4.3 | moderate | Windows editor middleware UNC/NTLM disclosure. Relevant to this Windows development environment if a malicious page reaches the running middleware; not production Express. |
+| vite: [GHSA-fx2h-pf6j-xcff](https://github.com/advisories/GHSA-fx2h-pf6j-xcff) | `<=6.4.2` | 6.4.3 | high | Windows dev-server deny-list bypass. Relevant if Vite is exposed; this checkout uses default local binding. No production Vite server. |
+
+`concurrently` has no separate advisory in this audit: its critical finding propagates from shell-quote. `body-parser`'s moderate aggregate includes qs; its own invalid-limit advisory is low. Vite's aggregate also includes esbuild. These are not extra independent advisories.
+
+### API hardening and mail safety
+
+The prior remediation still coerced non-string input and logged raw Error objects. The follow-up separates `server/app.js` (exported createApp factory) from `server/index.js` (dotenv loading and listener) so tests import the app without starting a server or loading real SMTP credentials.
+
+- Required name, phone, city and 1–30 product items must have the expected types; message is optional. Unknown top-level/item fields, arrays/objects in string fields, empty required values and overlong raw strings are rejected. Limits: name/city/product 120, phone 40, message 2,000, measurements 1,000 characters.
+- There is **no email input in the actual form/API schema**. Malformed and overlong submitted email fields are tested as unsupported input (400), rather than inventing a new email feature. No user email becomes Reply-To.
+- Name is the only visitor value used in a header (subject); raw CR, LF and CRLF are rejected before trimming. From/Reply-To come from SMTP configuration and To from QUOTE_EMAIL_TO (existing trusted fallback retained). Visitor from/to/cc/bcc/replyTo/subject and other extra fields are rejected; no request object is spread into sendMail.
+- Text/HTML bodies are assembled explicitly; all user text is HTML-escaped. Body newlines remain legitimate body content and cannot add recipients or headers. File/URL content access is disabled in the mail transport.
+- SMTP failure responses use one generic 500 message for authentication, connection, timeout and other failures. Logs contain only fixed categories such as `[mail] delivery_failed`; no provider Error object, message, code, stack, hostname or credentials are logged.
+- Explicit SMTP DNS/connect/greeting timeouts are 10 seconds each, socket inactivity timeout 20 seconds. These bound individual stages, not a promised end-to-end deadline.
+- API errors use JSON; malformed input returns 400, oversized JSON 413, unsupported content type/encoding 415, forbidden Origin 403 and rate limit 429. The final error middleware covers framework failures; static serving is removed by the later Cloud Run preparation.
+
+### Rate limiting, proxy deployment and abuse
+
+POST /api/orcamento allows **8 attempts per socket-derived client IP per 15 minutes**, with Retry-After. The limiter runs before origin/type/body processing, so invalid requests count. GET /api/health remains exempt. Expired entries are removed on quote requests; the map is bounded at 10,000 entries and new clients fail closed when full, rather than evicting active quotas.
+
+`trust proxy` is explicitly **false**; spoofed X-Forwarded-For, X-Real-IP and Forwarded headers cannot change the quota key. Behind a reverse proxy this deliberately groups callers under the proxy's IP until deployment-specific trust is configured.
+
+Before a production proxy change, identify the actual proxy addresses and paths. For a **single trusted proxy on the same host**, with the application reachable only from that proxy, replace the false setting with `app.set('trust proxy', 'loopback')`. For remote proxies use their exact IPs/CIDRs, not all private addresses. Block direct backend ingress and make the proxy overwrite forwarded client/protocol/host headers. Do not use `true` or a hop count unless every ingress path is verified; variable path lengths can permit spoofing. Retest quotas with different clients through the real proxy. See [Express behind proxies](https://expressjs.com/en/guide/behind-proxies/).
+
+Eight requests per window is conservative for this low-volume quote form, but allows bursts and can inconvenience shared-NAT clients. It is **not sufficient against distributed bots, rotating IPv6 addresses, restarts or multiple application instances**. Fixed recipients prevent arbitrary-victim email bombing but the company's mailbox and SMTP quota remain abuse targets. CORS/Origin checks are not authentication: non-browser callers can omit/forge Origin.
+
+For public production: enforce a provider/day-wide mail budget and monitoring, edge request/body/time limits, and a shared quota store before scaling to multiple processes. Consider per-IP cooldown and a honeypot as low-friction additions if spam appears; honeypots are bypassable. Consider server-verified CAPTCHA/Turnstile only if observed abuse justifies its privacy/accessibility/operational cost. No CAPTCHA or new external API was added.
+
+### Request size, CORS and headers
+
+JSON parsing is confined to the quote POST with `express.json({ limit: '64kb', strict: true, inflate: false })`. Maximum ordinary ASCII field content is 30 × (120 + 1,000) + 120 + 40 + 120 + 2,000 = **35,880 characters**, plus JSON syntax. A 64 KiB serialized UTF-8 budget accommodates this and ordinary Portuguese text while bounding parser work. The independent byte limit means every field cannot be filled with maximum multibyte/escaped characters simultaneously; this is explicitly tested as 413. Compressed bodies are rejected instead of inflated.
+
+CORS access is granted only to exact FRONTEND_URL. A mismatching browser Origin cannot send a quote; no-Origin non-browser requests remain allowed. Set FRONTEND_URL to the frontend's **origin only**, e.g. https://example.com, not a path/trailing slash. Production same-origin form submissions also need that value configured correctly. Vite development now binds to 127.0.0.1:5173 with strictPort, matching the existing default/example origin; automatic localhost/alternate-port selection would otherwise cause valid proxied submissions to fail the origin check. The actual Vite-to-Express proxy was exercised with mocked SMTP.
+
+All tested API success/failure responses retain X-Content-Type-Options, X-Frame-Options, Referrer-Policy and Permissions-Policy; X-Powered-By is absent. HSTS is emitted only for NODE_ENV=production. Production must use HTTPS, and includeSubDomains assumes all covered subdomains support HTTPS. Firebase Hosting independently serves the frontend; its headers are now configured in firebase.json, not by Express.
+
+### Frontend and repository configuration review
+
+Contact.jsx captures the form before await, preventing React's cleared event.currentTarget from breaking a successful reset. It retains entered data on failures, displays fixed status-appropriate Portuguese text for validation/rate/network/provider/invalid-JSON responses, and never renders arbitrary server errors as HTML. Input maxlength values match backend limits. No dangerouslySetInnerHTML or other application HTML sink receives quote input.
+
+Searched source, compiled dist, public text assets and configuration for SMTP, PASSWORD, SECRET, TOKEN and API_KEY without printing values. Compared actual configured SMTP credential/host strings against source and compiled assets in memory: **no secret matches**. Keyword-only hits in the bundle are React internals and normal password-input handling; workflow id-token is a permission, and .env.example contains documented placeholders. No sensitive VITE_* key was found. VITE_API_URL and VITE_BASE_PATH are public configuration; never place secrets in VITE_* variables. .gitignore now covers .env.* while keeping .env.example trackable. No .env contents were changed or printed.
+
+Added weekly npm Dependabot configuration in .github/dependabot.yml. It is prepared locally; it must reach the default branch through human review before GitHub applies it. No remote Dependabot settings or alerts were inspected because this task did not use an authenticated GitHub service.
+
+**Superseded workflow evidence:** the original security pass restricted the Pages workflow to contents:read/pages:read for build and pages:write/id-token:write for deployment, retaining its triggers and Node 20. The Firebase correction removes that workflow entirely. Firebase Hosting serves the static frontend, and the SMTP API still needs a separate HTTPS backend with correct VITE_API_URL and FRONTEND_URL. The Vite default is now `/`. A future workflow must use a [supported Node release](https://nodejs.org/en/about/previous-releases); the original local verification used Node **24.15.0** and npm **11.12.1**.
+
+### Tests and final verification
+
+Automated API tests use injected fake SMTP factories plus a guard against real Nodemailer transport creation. The separate Nodemailer compatibility test forces the built-in stream transport and forbids socket creation while generating mail. Tests do not load .env, connect to a provider, or send real email.
+
+Coverage: successful normalized quote and maximum-size legitimate form; missing/empty/wrong/long fields; arrays/nested/unknown/reserved keys; unsupported malformed/long emails; malformed/empty/oversized UTF-8 JSON; content types and compression; CR/LF injection and fixed recipients; HTML escaping; successful/failed SMTP with redaction; limit exhaustion/reset and invalid-attempt accounting; health exemption; forged forwarding headers; CORS/preflight; production-only HSTS and all baseline headers; framework URL errors.
+
+Ten isolated headless Chrome checks passed against the compiled frontend: maxlength, asynchronous success/reset, 400, 413, non-JSON 429, non-JSON 500, network failure, non-JSON 200, unexpected JSON 200 and absence of uncaught errors. Failed submissions preserve entered/product data and re-enable submit. Fetch was mocked against a static-only local server, with no backend or SMTP interaction. This was an ad hoc browser smoke check, not an added npm browser-test dependency.
+
+| Command / check | Result |
+|---|---|
+| Initial `npm audit` | Exit 1; 12 affected packages, counts above |
+| Initial `npm audit --omit=dev` | Exit 1; 7 affected packages, counts above |
+| Initial `npm run build` before upgrades | Pass in original OneDrive checkout; prior access failure not reproduced |
+| Grouped npm installs/update listed above | Pass; final install reports zero vulnerabilities |
+| `npm ci` | Pass; 168 packages installed from lockfile, zero vulnerabilities |
+| `node --check server/index.js` | Pass |
+| `node --check server/app.js` | Pass |
+| Final `npm audit` | Pass; zero vulnerabilities |
+| Final `npm audit --omit=dev` | Pass; zero vulnerabilities |
+| `npm test` (also run with `-- --test-reporter=dot`) | Pass; 146 tests, 0 failures, 0 skipped: 144 API + 2 in-memory Nodemailer MIME tests |
+| Final `npm run build` | Pass; Vite 6.4.3, 1,595 modules, built in original OneDrive checkout |
+| Headless Chrome frontend smoke | Pass; 10 checks, mocked fetch |
+| Vite development/proxy smoke | Pass; page, JSX transform, quote POST 200, mismatching Origin 403 and health 200; mocked SMTP |
+| Source/config/bundle secret checks | Pass; no actual credential values in frontend |
+| `git diff --check` | Pass; only ordinary Windows LF/CRLF conversion notices |
+
+No environmental workaround or disabled security protection was needed. The earlier OneDrive/esbuild access error cannot be attributed to a cause from this successful run. Vite config changes align the development origin and do not work around a build failure. The first ad hoc proxy harness closed Vite before dependency scanning completed and emitted shutdown errors; rerunning after awaiting scanning/JSX transformation passed cleanly. The first browser harness also had a local favicon response bug, fixed before its successful run; neither was an application failure.
+
+### Reproduce verification in the clean checkout
+
+Run these checks from `security-hardening` in `C:\github\globalfer-secure`. For a fresh checkout, use the published `security-hardening` branch once available; GitHub's `main` does not contain these changes before merge. Do not copy the old directory's .git metadata or reuse its obsolete index.
+
+```powershell
+Set-Location -LiteralPath 'C:\github\globalfer-secure'
+if ((git branch --show-current).Trim() -ne 'security-hardening') {
+    throw 'Unexpected branch; stop.'
+}
+git status --short --branch
+node --version
+npm --version
+npm ci
+if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
+node --check server/index.js
+if ($LASTEXITCODE -ne 0) { throw 'Bootstrap syntax check failed' }
+node --check server/app.js
+if ($LASTEXITCODE -ne 0) { throw 'App syntax check failed' }
+npm audit
+if ($LASTEXITCODE -ne 0) { throw 'Full audit failed' }
+npm audit --omit=dev
+if ($LASTEXITCODE -ne 0) { throw 'Production audit failed' }
+npm test
+if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
+npm run build
+if ($LASTEXITCODE -ne 0) { throw 'Build failed; inspect the exact error' }
+```
+
+Use a supported Node runtime; Node 24.15.0 was tested. No SMTP configuration is required for these tests or the static build.
+
+### Review readiness and manual actions
+
+**Ready for human code review; not deployed.** No audited dependency vulnerabilities remain. Real SMTP delivery and provider authentication were intentionally not exercised. Before production, verify HTTPS/HSTS coverage, the separately hosted API and public frontend URL, exact proxy trust/ingress behavior, aggregate mail quotas/monitoring and the hosting-layer headers. Review the retained older Vite/Nodemailer release lines through Dependabot as upstream support evolves. No unrequested real email test is required to review this branch.
+
+Changes in the original remediation pass: package.json, package-lock.json, server/index.js, new server/app.js, src/components/Contact.jsx, vite.config.js, README.md, .gitignore, .github/workflows/deploy.yml, new .github/dependabot.yml, new tests/server.test.js, new tests/nodemailer.test.js and this report. During that pass, existing unrelated staged files were left untouched.
+
+Historical commit suggestions from the original remediation review (no commits were created during that pass):
+
+1. `fix(deps): resolve runtime and build dependency advisories`
+2. `fix(security): validate quote requests and isolate mail delivery`
+3. `test(security): cover quote API and in-memory mail composition`
+4. `fix(contact): handle asynchronous form submission safely`
+5. `chore(security): configure dependency updates and document verification`
+
+The original source checkout had no initial commit and an obsolete staged application snapshot. It remains untouched. Use the current clone and the migration-specific commit plan above; do not commit from that source index.
+
+Historical note about the original source only: temporary audit files were removed during the earlier remediation, but removal of its empty `.security-review` directory was blocked. That directory was not copied to this clone, and no cleanup was attempted in the source during migration.

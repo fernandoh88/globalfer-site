@@ -8,24 +8,26 @@
     "dev:client": "vite",
     "dev:server": "node --watch server/index.js",
     "build": "vite build",
+    "build:firebase": "node scripts/build-firebase.mjs",
     "preview": "vite preview",
-    "start": "node server/index.js"
+    "start": "node server/index.js",
+    "test": "node --test"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
-    "express": "^4.21.2",
-    "vite": "^5.4.11",
-    "nodemailer": "^6.9.16",
+    "express": "^4.22.3",
+    "lucide-react": "^0.468.0",
+    "nodemailer": "^9.1.1",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "lucide-react": "^0.468.0"
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
-    "concurrently": "^9.1.0"
+    "concurrently": "^9.2.4",
+    "vite": "^6.4.3"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": "^18.13.0 || ^20.0.0 || >=22.0.0"
   }
 }
