@@ -1,6 +1,22 @@
 # Globalfer Security Audit
 
-## Current production frontend connection — 2026-09-22 UTC
+## Dual-recipient configuration and rollout requirements — 2026-09-22 UTC
+
+This section records the reviewed recipient change and required rollout configuration. At the pre-change production inspection, Cloud Run had **one explicitly configured recipient**. Because environment configuration takes precedence over the fallback, the backend image and production recipient value must both be updated.
+
+```text
+QUOTE_EMAIL_TO=fernando403@gmail.com,globalfer_marilia@yahoo.com.br
+```
+
+The application fallback and example use that exact trusted, server-controlled string. A nonempty `QUOTE_EMAIL_TO` environment value overrides the complete fallback list; an absent or empty value uses both fallback addresses. Nodemailer supports the comma-separated recipient string directly: with the intended two-recipient value, each valid quote makes **one `sendMail` call and one message with both addresses in `To`**, without `Cc` or `Bcc`. `From` and `Reply-To` remain server-controlled, and strict request validation rejects visitor-supplied recipient/header fields.
+
+Regression verification for this change covers the fallback, explicit environment precedence, one-call/two-recipient semantics and rejection of forged routing fields, using only fake or in-memory transport. No valid production quote, SMTP connection or real email is authorized in this task. The earlier controlled quote at **2026-09-22T01:25:06Z** confirmed one SMTP acceptance under the previous recipient configuration; it did not verify delivery to both intended inboxes, and final inbox delivery was not independently verified. A later two-inbox test requires separate explicit authorization.
+
+The authorized backend rollout must explicitly set Cloud Run to the exact recipient value above and deploy the new immutable image. It must preserve `SMTP_PASS:3`, all other SMTP configuration, runtime identity, origin, public access, resource settings, `trust proxy=false` and the existing 120-POST/minute and eight-mail-attempt/15-minute process budgets. One quote consumes one mail-attempt reservation even with two recipients; provider recipient-based quotas may differ. Firebase Hosting, the public Footer contact and PR/main merge state are outside this change.
+
+This pre-rollout record does not claim that the new production revision is already active. The completion report must record its image digest/revision, verify the exact two-recipient environment value and unchanged protected configuration, and report only safe health/negative checks without triggering mail. The following Hosting and single-quote verification sections are historical snapshots that predate this recipient change.
+
+## Production frontend connection snapshot — 2026-09-22 UTC
 
 Firebase Hosting now serves the reviewed frontend connected directly to the existing Cloud Run backend. Work remained in `C:\github\globalfer-secure` on `security-hardening`; both `bdc815c` and `e3c131d` were present and the initial working tree was clean. Local and remote `main` remained at `c5809a285b91df58dec8d026110c02242434aa30`. The backend mitigation below remains in force; its pending-frontend statements describe the earlier snapshot.
 

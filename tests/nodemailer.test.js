@@ -32,10 +32,11 @@ const validQuote = () => ({
   items: [{ product: 'Tubo de aço', measurements: '2 peças de 6 metros' }],
 })
 
-async function fixture(t) {
+async function fixture(t, envOverrides = {}) {
   const generated = []
+  const sent = []
   const app = createApp({
-    env,
+    env: { ...env, ...envOverrides },
     logger: { error() {} },
     createTransport: () => {
       const transport = createMemoryTransport({
@@ -47,6 +48,7 @@ async function fixture(t) {
       })
       return {
         async sendMail(mail) {
+          sent.push(mail)
           // The incoming loopback HTTP connection already exists. Any outgoing
           // socket connection during real MIME generation fails this test.
           const networkGuard = t.mock.method(net.Socket.prototype, 'connect', () => {
@@ -70,7 +72,7 @@ async function fixture(t) {
     server.closeAllConnections?.()
   }))
   await once(server, 'listening')
-  return { port: server.address().port, generated }
+  return { port: server.address().port, generated, sent }
 }
 
 function post(server, quote) {
@@ -157,6 +159,7 @@ test('installed Nodemailer composes UTF-8 multipart quotes with a fixed envelope
   quote.items[0].measurements = '<script>alert(1)</script>\n2 & 3 metros'
   const response = await post(server, quote)
   assert.equal(response.status, 200)
+  assert.equal(server.sent.length, 1)
   assert.equal(server.generated.length, 1)
   const result = server.generated[0]
   assert.deepEqual(result.envelope, { from: 'website@example.test', to: [env.QUOTE_EMAIL_TO] })
@@ -181,9 +184,35 @@ test('installed Nodemailer composes UTF-8 multipart quotes with a fixed envelope
   assert.ok(message.html.includes('<br>'))
 })
 
+for (const [label, configured, recipients] of [
+  ['the two fallback recipients', undefined, ['fernando403@gmail.com', 'globalfer_marilia@yahoo.com.br']],
+  ['the two explicitly configured business recipients', 'fernando403@gmail.com,globalfer_marilia@yahoo.com.br', ['fernando403@gmail.com', 'globalfer_marilia@yahoo.com.br']],
+  ['one environment recipient instead of the fallback', 'override@example.test', ['override@example.test']],
+  ['two environment recipients instead of the fallback', 'first@example.test,second@example.test', ['first@example.test', 'second@example.test']],
+]) {
+  test(`installed Nodemailer composes one message to ${label}`, async (t) => {
+    const server = await fixture(t, { QUOTE_EMAIL_TO: configured })
+    const response = await post(server, validQuote())
+    assert.equal(response.status, 200)
+    assert.equal(server.sent.length, 1)
+    assert.equal(server.generated.length, 1)
+    const result = server.generated[0]
+    assert.deepEqual(result.envelope, { from: 'website@example.test', to: recipients })
+    const message = readMessage(result)
+    assert.equal(message.headers.get('to'), recipients.join(', '))
+    assert.equal(message.headers.get('from'), env.SMTP_FROM)
+    assert.equal(message.headers.get('reply-to'), env.SMTP_USER)
+    assert.equal(message.headers.get('cc'), undefined)
+    assert.equal(message.headers.get('bcc'), undefined)
+    assert.equal(server.sent[0].cc, undefined)
+    assert.equal(server.sent[0].bcc, undefined)
+  })
+}
+
 test('CR/LF visitor names are rejected before reaching the real Nodemailer composer', async (t) => {
   const server = await fixture(t)
   const response = await post(server, { ...validQuote(), name: 'Maria\r\nBcc: victim@evil.test' })
   assert.equal(response.status, 400)
+  assert.equal(server.sent.length, 0)
   assert.equal(server.generated.length, 0)
 })

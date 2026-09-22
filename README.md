@@ -76,7 +76,7 @@ For local development, copy `.env.example` to `.env` and supply your development
 ```bash
 PORT=3001
 FRONTEND_URL=http://127.0.0.1:5173
-QUOTE_EMAIL_TO=globalfer_marilia@yahoo.com.br
+QUOTE_EMAIL_TO=fernando403@gmail.com,globalfer_marilia@yahoo.com.br
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=465
 SMTP_SECURE=true
@@ -105,7 +105,7 @@ npm run preview
 
 ## Deployment
 
-Firebase Hosting now serves the React/Vite frontend connected directly to the existing Cloud Run Express API. The frontend migration was deployed and verified on 2026-09-22 UTC. One separately authorized production quote subsequently completed successfully through SMTP provider acceptance; final inbox delivery has not been independently verified by automation.
+Firebase Hosting now serves the React/Vite frontend connected directly to the existing Cloud Run Express API. The frontend migration was deployed and verified on 2026-09-22 UTC. One separately authorized production quote subsequently completed successfully through SMTP provider acceptance; final inbox delivery has not been independently verified by automation. That test preceded the two-recipient change described below.
 
 ```mermaid
 flowchart LR
@@ -185,7 +185,7 @@ The five backend request records reviewed during Hosting deployment had statuses
 
 At **2026-09-22T01:25:06Z**, exactly one authorized production quote produced exactly one Cloud Run POST with HTTP **200**, one frontend success state and one form reset. Nodemailer completed successfully and the SMTP provider accepted the message. No retry or duplicate POST was observed, and the log review for that attempt found no sensitive information.
 
-**Final inbox delivery was not independently verified by automation. No additional production quote or retry is authorized.** The remaining manual check is receipt of the already submitted message in the intended mailbox; provider acceptance alone does not establish inbox delivery.
+**Final inbox delivery was not independently verified by automation. No additional production quote or retry is authorized in this recipient-update task.** The earlier message can be checked in its intended mailbox without sending again. That test used the previous recipient configuration and does not verify delivery to both newly intended inboxes; a future two-inbox delivery test requires separate explicit authorization.
 
 ### Future GitHub Actions authentication
 
@@ -236,7 +236,7 @@ These ten variables are read by the backend; the examples are formats or public 
 | `PORT` | Injected by Cloud Run; optional locally | No | Integer supplied by the platform | HTTP listener; local default 3001 |
 | `NODE_ENV` | Set to `production` on Cloud Run | No | `production` | Enables production HSTS policy |
 | `FRONTEND_URL` | Explicitly set in production | No | `https://globalfer-site.web.app` | Exact allowed browser origin; local default `http://127.0.0.1:5173` |
-| `QUOTE_EMAIL_TO` | Optional in code; explicitly confirm for production | No; business mailbox | Recipient email address | Fixed server-controlled destination; code has the existing business-mailbox default |
+| `QUOTE_EMAIL_TO` | Optional in code; explicitly set in production | No; trusted business addresses | Comma-separated email addresses | Server-controlled To list; a nonempty environment value overrides the two-address fallback |
 | `SMTP_HOST` | Required for sending | Normally non-secret configuration | Provider SMTP DNS hostname | Outbound mail server |
 | `SMTP_PORT` | Required for sending | No | `465` for the proposed TLS mode | SMTP TCP port |
 | `SMTP_SECURE` | Optional in code; set `true` for proposed port 465 | No | Literal `true` | TLS from connection start; any other value currently means false |
@@ -244,7 +244,21 @@ These ten variables are read by the backend; the examples are formats or public 
 | `SMTP_PASS` | Required for sending | **Yes** | Provider-issued password/app-password | SMTP authentication secret |
 | `SMTP_FROM` | Optional; falls back to `SMTP_USER` | No; sender identity | Mailbox or display-name mailbox format | Provider-authorized From header |
 
-Production reuses the verified existing Firebase function's SMTP host, user and authorized sender. `QUOTE_EMAIL_TO` was reused from existing production Firebase function configuration, rather than the repository fallback. `SMTP_PASS` is injected from the existing Secret Manager version **`SMTP_PASS:3`**, never `latest`. The runtime identity `globalfer-api-runtime@globalfer-site.iam.gserviceaccount.com` has Secret Accessor on that specific secret, with no project-wide Secret Manager grant. No password was read, copied into `.env`, duplicated or rotated. Keep production configuration in the platform; the local development example above does not authorize copying production credentials. Do not set a service-account JSON key or `GOOGLE_APPLICATION_CREDENTIALS` in the container. [Cloud Run secret injection](https://docs.cloud.google.com/run/docs/configuring/services/secrets)
+Production reuses the verified existing Firebase function's SMTP host, user and authorized sender. Before this recipient update, the explicit single `QUOTE_EMAIL_TO` value was reused from existing production Firebase function configuration, rather than the repository fallback. The required replacement is documented below. `SMTP_PASS` is injected from the existing Secret Manager version **`SMTP_PASS:3`**, never `latest`. The runtime identity `globalfer-api-runtime@globalfer-site.iam.gserviceaccount.com` has Secret Accessor on that specific secret, with no project-wide Secret Manager grant. No password was read, copied into `.env`, duplicated or rotated. Keep production configuration in the platform; the local development example above does not authorize copying production credentials. Do not set a service-account JSON key or `GOOGLE_APPLICATION_CREDENTIALS` in the container. [Cloud Run secret injection](https://docs.cloud.google.com/run/docs/configuring/services/secrets)
+
+### Quote recipient configuration
+
+With the intended configuration, every valid quote uses **one message and one `sendMail` call with two trusted `To` recipients**:
+
+```text
+QUOTE_EMAIL_TO=fernando403@gmail.com,globalfer_marilia@yahoo.com.br
+```
+
+The repository fallback is that exact comma-separated string when `QUOTE_EMAIL_TO` is absent or empty. A nonempty server environment value takes precedence as the complete recipient list; it is not merged with the fallback. Nodemailer accepts the comma-separated string directly. No `Cc` or `Bcc` is added, and `From` and `Reply-To` remain server-controlled. Visitors cannot select or override recipients; unexpected request fields such as `to`, `cc`, `bcc`, `recipient`, `recipients` and `quoteEmailTo` are rejected.
+
+**Required production rollout:** deploy the updated backend image and explicitly set Cloud Run `QUOTE_EMAIL_TO` to the value above. The pre-change service had one explicit recipient, so changing the repository fallback alone would not update production delivery. This documents the source change and deployment requirement before rollout; the completion report must confirm the ready revision and exact deployed value. Preserve the existing SMTP credentials, pinned `SMTP_PASS:3`, runtime identity, origins, access model and resource settings.
+
+The Footer's displayed Yahoo address is public business contact information, separate from backend routing; no frontend or Firebase Hosting change is needed. One quote still consumes one mail-attempt reservation, and the existing eight-attempt/15-minute process budget is unchanged. Provider quotas may account for individual recipients separately. No real quote or SMTP delivery is authorized for this update; the prior single-quote acceptance result does not establish delivery to both inboxes.
 
 `VITE_API_URL` and `VITE_BASE_PATH` are frontend build settings, not backend variables. The deployed frontend uses the verified Cloud Run origin supplied through its build environment; no permanent environment-file setting was added.
 
@@ -261,7 +275,7 @@ Two explicit fixed-window budgets replace the accidental per-proxy quota:
 
 Both use a monotonic clock and return JSON 429 with `Retry-After`. Health, preflight and unknown routes remain outside quote budgets. No IP/customer data is retained by the counters or added to logs. `X-Forwarded-For`, `X-Real-IP` and `Forwarded` never affect admission: IPv4, IPv6, malformed address strings and multiple apparent peers cannot create extra capacity. HTTP syntax errors can also be rejected by Node before Express.
 
-This is a conservative aggregate mitigation, not per-customer fairness or DoS protection. Invalid traffic can exhaust the short request budget; eight plausible quotes can still deny mail capacity to others. The initial 120/minute ceiling permits modest rejected traffic without increasing the eight-attempt SMTP exposure. Fixed windows allow boundary bursts; restarts, additional processes and overlapping revisions reset or multiply capacity. Maximum instances = 1 reduces exposure but is not a durable provider-wide quota. The unchanged legacy Firebase function also shares the SMTP provider outside these counters. A monitored low-volume frontend connection can use this mitigation, but broader availability requires reviewed provider/day quotas and monitoring. The controlled quote established SMTP acceptance for one attempt; provider-wide quota enforcement and monitoring remain unverified.
+This is a conservative aggregate mitigation, not per-customer fairness or DoS protection. Invalid traffic can exhaust the short request budget; eight plausible quotes can still deny mail capacity to others. The initial 120/minute ceiling permits modest rejected traffic without increasing the eight-attempt SMTP exposure. Fixed windows allow boundary bursts; restarts, additional processes and overlapping revisions reset or multiply capacity. Maximum instances = 1 reduces exposure but is not a durable provider-wide quota. The unchanged legacy Firebase function also shares the SMTP provider outside these counters. A monitored low-volume frontend connection can use this mitigation, but broader availability requires reviewed provider/day quotas and monitoring. The earlier controlled quote established SMTP acceptance for one attempt under the previous recipient configuration; provider-wide quota enforcement and monitoring remain unverified.
 
 Existing fixed recipients, 64 KiB bodies, strict validation and Origin checks remain. A global cooldown would delay unrelated customers; client-chosen identifiers would be bypassable. A honeypot would require coordinated form/schema changes and is only a weak supplementary signal. Neither is added, and no CAPTCHA, Redis or database is introduced. Provider-wide monitoring and a separately reviewed edge/shared quota design are the next controls if abuse appears or scaling is planned.
 
@@ -269,7 +283,7 @@ Future options include a shared rate-limit store, edge controls, or Cloud Armor 
 
 ### SMTP, health and logging
 
-Production uses **465 with `SMTP_SECURE=true`**. Certificate validation stays enabled. Google documents SMTP use with Cloud Run and 465/587 are standard alternatives to externally restricted port 25. The controlled quote verified provider connectivity, SMTP authentication and message acceptance with the existing production configuration. It did not independently establish final inbox delivery, provider-wide quotas or the behavior of other VPC egress/firewall configurations. Default egress addresses are not fixed; a provider requiring IP allowlisting needs a separate egress design. [Google SMTP example](https://docs.cloud.google.com/build/docs/configuring-notifications/configure-smtp), [network restrictions](https://docs.cloud.google.com/firewall/docs/firewalls), [static egress](https://docs.cloud.google.com/run/docs/configuring/static-outbound-ip)
+Production uses **465 with `SMTP_SECURE=true`**. Certificate validation stays enabled. Google documents SMTP use with Cloud Run and 465/587 are standard alternatives to externally restricted port 25. The earlier controlled quote verified provider connectivity, SMTP authentication and message acceptance with the previous recipient configuration; it did not test the new two-recipient list. It did not independently establish final inbox delivery, provider-wide quotas or the behavior of other VPC egress/firewall configurations. Default egress addresses are not fixed; a provider requiring IP allowlisting needs a separate egress design. [Google SMTP example](https://docs.cloud.google.com/build/docs/configuring-notifications/configure-smtp), [network restrictions](https://docs.cloud.google.com/firewall/docs/firewalls), [static egress](https://docs.cloud.google.com/run/docs/configuring/static-outbound-ip)
 
 Port 587 with `SMTP_SECURE=false` currently uses opportunistic STARTTLS because the transport does not set `requireTLS`. Do not describe that mode as enforced encryption. If 587 is required, prepare and test a fail-closed STARTTLS policy before deployment. Existing DNS/connection/greeting timeouts are 10 seconds and socket timeout is 20 seconds; provider failures remain generic, HTML is escaped, sender/recipient fields stay server-controlled and the subject uses the validated visitor name. Never disable certificate checks. [Nodemailer TLS behavior](https://nodemailer.com/smtp#tls-options)
 
@@ -319,9 +333,9 @@ For subsequent authorized work:
 
 1. Review the aggregate budgets above and provider/day monitoring; preserve the exact backend `FRONTEND_URL=https://globalfer-site.web.app` and frontend API origin.
 2. Run required tests and audits, build from source, and review the generated frontend before an authorized Hosting-only deployment. Repeat emulator and live navigation, asset, header, API-routing and safe invalid-submission checks afterward.
-3. Manually confirm receipt of the already submitted controlled message in the intended mailbox. No additional quote or retry is authorized. Continue monitoring rejection rates and aggregate SMTP quota.
+3. The earlier controlled message can be checked in its original intended mailbox without sending again. After the recipient rollout, confirming both inboxes requires one separately authorized controlled quote; no such quote or retry is authorized in this update. Continue monitoring rejection rates and aggregate SMTP quota.
 
-Frontend connection and Hosting deployment are complete. The one controlled quote confirmed successful Nodemailer completion and SMTP provider acceptance; final inbox delivery remains the outstanding manual verification. Health and invalid-input checks alone do not establish mail delivery. Automated tests and safe live rejection checks use no SMTP network access.
+Frontend connection and Hosting deployment are complete. The earlier controlled quote confirmed successful Nodemailer completion and SMTP provider acceptance with the previous recipient configuration. It did not verify the new two-recipient delivery path or either final inbox receipt; two-inbox verification remains a separate, explicitly authorized future task. Health and invalid-input checks alone do not establish mail delivery. Automated tests and safe live rejection checks use no SMTP network access.
 
 ## API Endpoints
 

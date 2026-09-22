@@ -120,7 +120,7 @@ export const createApp = ({
 } = {}) => {
   const app = express()
   const frontendUrl = env.FRONTEND_URL || 'http://127.0.0.1:5173'
-  const quoteEmailTo = env.QUOTE_EMAIL_TO || 'globalfer_marilia@yahoo.com.br'
+  const quoteEmailTo = env.QUOTE_EMAIL_TO || 'fernando403@gmail.com,globalfer_marilia@yahoo.com.br'
 
   app.disable('x-powered-by')
   // No documented direct Cloud Run topology justifies trusting forwarding headers.

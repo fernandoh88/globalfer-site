@@ -178,6 +178,29 @@ test('valid quote trims values, escapes email HTML, and uses only configured hea
   assert.ok(mail.html.includes('<br>'))
 })
 
+const defaultQuoteRecipients = 'fernando403@gmail.com,globalfer_marilia@yahoo.com.br'
+for (const [label, configured, expected] of [
+  ['unset configuration', undefined, defaultQuoteRecipients],
+  ['empty configuration', '', defaultQuoteRecipients],
+  ['one configured recipient', 'override@example.test', 'override@example.test'],
+  ['multiple configured recipients', 'first@example.test,second@example.test', 'first@example.test,second@example.test'],
+]) {
+  test(`quote recipients honor ${label} in one mail call`, async (t) => {
+    const server = await fixture(t, { env: { QUOTE_EMAIL_TO: configured } })
+    const response = await post(server)
+    assert.equal(response.status, 200)
+    assertSafe(response)
+    assert.equal(server.transports.length, 1)
+    assert.equal(server.sent.length, 1)
+    const mail = server.sent[0]
+    assert.equal(mail.to, expected)
+    assert.equal(mail.from, fakeEnv.SMTP_FROM)
+    assert.equal(mail.replyTo, fakeEnv.SMTP_USER)
+    assert.equal(mail.cc, undefined)
+    assert.equal(mail.bcc, undefined)
+  })
+}
+
 test('all documented field maxima and 30 products fit a legitimate request', async (t) => {
   const server = await fixture(t)
   const response = await post(server, {
@@ -305,8 +328,8 @@ for (const email of ['not-an-email', 'person@@example.test', `${'a'.repeat(400)}
   })
 }
 
-for (const field of ['from', 'to', 'cc', 'bcc', 'replyTo', 'subject']) {
-  test(`visitor cannot override email header ${field}`, async (t) => {
+for (const field of ['from', 'to', 'cc', 'bcc', 'replyTo', 'subject', 'QUOTE_EMAIL_TO', 'recipient', 'recipients', 'quoteEmailTo']) {
+  test(`visitor cannot override email header or recipient configuration ${field}`, async (t) => {
     await assertRejected(t, { ...validQuote(), [field]: 'attacker-payload-private-sentinel@evil.test' })
   })
 }
