@@ -1,17 +1,61 @@
-# Globalfer Website
+# Globalfer
 
-Website for Globalfer, a construction steel and reinforcement supplier serving Marilia and the surrounding region. Customers can browse products and services and request a quote for cut, bent or assembled steel products.
+**Ferragem armada sob medida para sua obra.**
+
+The website for Globalfer, a construction steel and reinforcement supplier serving Marília and the surrounding region. Customers can explore products, learn about cutting and assembly services, and request a quote with the measurements for their project.
+
+[Live website](https://globalfer-site.web.app/) · [Preview](#interface-preview) · [Run locally](#local-development) · [Configuration](#environment-variables) · [Testing](#testing) · [Deployment](#production-deployment) · [Security audit](SECURITY-AUDIT.md)
+
+## Interface preview
+
+Local browser captures of the visual refresh, using the existing Globalfer photographs and business content. These screenshots document the repository's UI; they are not a production deployment record. The quote form is empty, and no email was sent to capture these views.
+
+**Desktop · 1440 px**
+
+![Globalfer desktop homepage with the navy and amber hero, company photograph and quote actions](docs/screenshots/desktop-home.png)
+
+<details>
+<summary>Tablet and mobile layouts</summary>
+
+<table>
+  <tr>
+    <th>Tablet · 768 px</th>
+    <th>Mobile · 390 px</th>
+  </tr>
+  <tr>
+    <td><a href="docs/screenshots/tablet-home.png"><img src="docs/screenshots/tablet-home.png" alt="Globalfer tablet homepage with a two-column hero and compact navigation" width="480" /></a></td>
+    <td><a href="docs/screenshots/mobile-home.png"><img src="docs/screenshots/mobile-home.png" alt="Globalfer mobile homepage with visible WhatsApp, stacked quote actions and the company photograph" width="244" /></a></td>
+  </tr>
+</table>
+
+</details>
+
+<details>
+<summary>Quote form detail</summary>
+
+![Empty Globalfer quote form showing contact details, a product selector, measurements and the add-product action](docs/screenshots/quote-form.png)
+
+</details>
+
+Screenshots are stored in [`docs/screenshots/`](docs/screenshots/), outside the deployed frontend assets. Open an image to inspect it at full resolution.
 
 ## Main features
 
-- Responsive product catalog and company information.
-- Custom cutting, bending and assembly service descriptions.
-- Quote form with multiple product line items and submission feedback.
-- Validated email quotes sent to two trusted business recipients.
+- Responsive product catalog with real photographs and descriptions of cutting, bending and assembly services.
+- Accessible navigation, visible keyboard focus, reduced-motion support and direct WhatsApp contact.
+- Quote form with up to 30 product items, individual measurements, validation and submission feedback.
+- Server-controlled quote routing to two trusted business recipients.
 
 ## Tech stack
 
-React 18, Vite, CSS Modules and Lucide icons on the frontend; Node.js, Express and Nodemailer on the backend. Firebase Hosting serves the frontend, Google Cloud Run runs the API, and Secret Manager stores the SMTP password.
+| Layer | Technologies |
+| --- | --- |
+| Frontend | React 18, Vite, CSS Modules, Lucide icons |
+| API and email | Node.js 24, Express, Nodemailer |
+| Hosting | Firebase Hosting for the frontend; Google Cloud Run for the API |
+| Secrets | Google Secret Manager for the SMTP password |
+
+The interface uses shared CSS tokens, system fonts and restrained transitions, with no external font or animation service.
 
 ## Architecture
 
@@ -48,6 +92,7 @@ server/
 tests/          API, mail composition and shutdown tests
 scripts/
   build-firebase.mjs  Hosting build configuration validation
+docs/screenshots/  Desktop, tablet, mobile and quote-form previews
 firebase.json   Hosting routes, headers and local emulator
 .firebaserc     Public Firebase project mapping
 Dockerfile      Nonroot Cloud Run backend image
@@ -56,7 +101,7 @@ SECURITY-AUDIT.md  Detailed security evidence and historical snapshots
 
 ## Local development
 
-Use Node.js 24 and install the locked dependencies:
+Use Node.js 24. From the repository root, install the locked dependencies and start the frontend and API:
 
 ```bash
 npm ci
@@ -65,7 +110,7 @@ npm run dev
 
 Open `http://127.0.0.1:5173/`. Vite proxies `/api` to Express on port 3001. Port 5173 is fixed to match the default `FRONTEND_URL`; `localhost` is a different browser origin. Leave `VITE_API_URL` unset locally to use this proxy. If changing ports, update the proxy and allowed origin together.
 
-`npm run dev:client` and `npm run dev:server` start each process separately. `npm start` runs only the API. SMTP settings are unnecessary for viewing the site, running tests or checking health; sending a quote requires working mail configuration.
+For frontend-only design work, use `npm run dev:client`; it starts Vite without the API. `npm run dev:server` starts the API with file watching, and `npm start` runs it without watching. SMTP settings are unnecessary for viewing the site, running tests or checking health; sending a quote requires working mail configuration.
 
 ## Environment variables
 
@@ -109,7 +154,20 @@ npm audit
 npm audit --omit=dev
 ```
 
-Latest verified state: **179 tests passing**, **0 vulnerabilities in `npm audit`**, and **0 vulnerabilities in `npm audit --omit=dev`**. These are the latest recorded results, not a guarantee for future dependency changes. Tests use fake SMTP behavior or compose messages in memory; they do not load `.env`, contact an SMTP provider or send email. See [SECURITY-AUDIT.md](SECURITY-AUDIT.md) for detailed test evidence and historical review records.
+| Check | Latest verified result |
+| --- | --- |
+| `npm test` | 179 tests passing |
+| `npm audit` | 0 vulnerabilities |
+| `npm audit --omit=dev` | 0 vulnerabilities |
+| `npm run build` | Passed |
+
+These results were recorded during the visual refresh. Tests use fake SMTP behavior or compose messages in memory; they do not load `.env`, contact an SMTP provider or send email. See [SECURITY-AUDIT.md](SECURITY-AUDIT.md) for detailed security evidence and historical review records.
+
+### Interface verification
+
+The visual refresh was reviewed in Chrome at 1440, 1280, 1024, 768, 480, 390 and 320 px, with no horizontal overflow, broken images or console warnings. Checks covered keyboard navigation, sticky-header anchor offsets, text contrast and reduced motion.
+
+Browser tests used mocked responses to check required fields, product add/remove controls and the 30-item limit, pending and error states, payload structure and successful form reset. No real quote request reached the API during these checks. The production SMTP test below is a separate, earlier verification.
 
 ### Production quote verification
 
@@ -137,7 +195,7 @@ Output goes to `dist/`. An ordinary build permits an unset `VITE_API_URL` for lo
 
 ## Production deployment
 
-Firebase Hosting and Cloud Run are live at the URLs above. The security and deployment work from PR #1 is merged into `main`. Deployments are manual; no automatic deployment workflow is enabled.
+Firebase Hosting and Cloud Run are live at the URLs above. Frontend and backend releases are separate, manual operations; no automatic deployment workflow is enabled. Updating this repository or its screenshots does not publish a new release.
 
 ### Frontend redeployment
 
