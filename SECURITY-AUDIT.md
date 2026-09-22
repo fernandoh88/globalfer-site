@@ -1,6 +1,54 @@
 # Globalfer Security Audit
 
-## Current Cloud Run rate-limit mitigation — 2026-09-21
+## Current production frontend connection — 2026-09-22 UTC
+
+Firebase Hosting now serves the reviewed frontend connected directly to the existing Cloud Run backend. Work remained in `C:\github\globalfer-secure` on `security-hardening`; both `bdc815c` and `e3c131d` were present and the initial working tree was clean. Local and remote `main` remained at `c5809a285b91df58dec8d026110c02242434aa30`. The backend mitigation below remains in force; its pending-frontend statements describe the earlier snapshot.
+
+| Production item | Verified value |
+|---|---|
+| Firebase project / Hosting site | `globalfer-site` / `globalfer-site` |
+| Frontend | `https://globalfer-site.web.app/` |
+| Frontend build setting | `VITE_API_URL=https://globalfer-api-nxbq6byh4q-rj.a.run.app` |
+| Final quote endpoint | `https://globalfer-api-nxbq6byh4q-rj.a.run.app/api/orcamento` |
+| Backend allowed origin | `FRONTEND_URL=https://globalfer-site.web.app` |
+| Cloud Run revision, unchanged | `globalfer-api-00002-vbf` in `southamerica-east1` |
+| Final Hosting version | `sites/globalfer-site/versions/fc953ce63aaa0a00` |
+| Final Hosting release | `sites/globalfer-site/releases/1790039165331000` |
+| Release timestamp / status | `2026-09-22T01:06:05.331Z` / `DEPLOY`, version `FINALIZED` |
+
+### Build configuration and deployment scope
+
+The API origin is supplied as a **process environment variable for each production build and deploy**, with `VITE_BASE_PATH=/`. It is public browser configuration, not hardcoded into `Contact.jsx` or stored in a new `.env` file. The existing `build:firebase` guard validates the origin and root base; Hosting's predeploy hook rebuilds with those same inherited values. `Contact.jsx` already appends `/api/orcamento` correctly, so application code required no change. Existing configuration targets `dist` and the verified default project/site. The installed Firebase CLI's read-only `use` command confirmed `globalfer-site` before deployment.
+
+Only `firebase deploy --only hosting --project globalfer-site --config firebase.json --non-interactive` was run, with the explicit build environment. Fifteen static files were published. No functions, Firestore, Storage, Database, extensions, Cloud Run or Secret Manager resources were deployed or changed. A private comparison of the complete relevant Cloud Run configuration, generation and revision against the pre-task snapshot passed exactly; this includes SMTP settings, `SMTP_PASS:3`, identity, ingress/access, scaling and resource settings. The legacy Firebase function's update time is also unchanged. The old Hosting-to-function API rewrite is absent from the newly deployed static configuration.
+
+### Hosting routing correction discovered in production
+
+The first Hosting release passed local emulator checks, but live GETs to `/api` and `/api/orcamento` returned the new SPA document with status 200; `/api/` returned 404. The responses contained the current build and were cache misses, so the failure was not explained by stale frontend files. The deployed configuration still contained the intended negated brace glob. This establishes an emulator/production discrepancy for that pattern, not a general claim that Firebase negated globs are unsupported.
+
+The only runtime configuration change is in `firebase.json`: replace that glob with a positive RE2 pattern matching paths outside the exact lowercase `api` first segment. It uses character classes and alternatives, without unsupported negative lookahead. Slash/backslash classes also accommodate the installed Windows emulator's observed `glob-slasher` path normalization. No SDK files or cache policy were changed. [Firebase rewrite patterns](https://firebase.google.com/docs/hosting/full-config#rewrites)
+
+A corrected Hosting-only release passed **27 HTTP checks in both emulator and production**. Homepage, `/index.html`, JavaScript, CSS and 12 images match the reviewed build bytes and content types. SPA checks include `/review/navigation`, `/a`, `/ap` and `/apiary`. `/api`, `/api/`, `/api/orcamento`, `/api/health`, deeper API paths and API query-string variants return 404 without the SPA document. Separate bounded pattern checks covered URL paths and installed Windows normalization. Neither a Cloud Run rewrite nor a function/pinTag rewrite was introduced.
+
+### Browser, CORS, headers, cache and privacy verification
+
+- A fresh headless Chrome profile loaded the production build in the emulator and on the live frontend: homepage 200, correct JavaScript/CSS, 12 loaded images, five working navigation targets, quote form rendered, and no unexpected console, loading or JavaScript errors. The final routing release serves the same byte-verified browser bundle, `index-BXYJZbLl.js`.
+- The browser harness permits only one deliberately invalid, entirely blank form payload to the exact quote endpoint. A second network interception guard rejects other write requests; all fields are checked empty before bypassing browser-required-field checks. No valid quote payload or customer information was submitted. From the emulator origin, the browser correctly rejected the request through CORS and displayed the generic error; the backend origin setting was not weakened.
+- From the natural production browser origin, preflight returned **204**, the invalid quote returned **400**, and both allowed exactly `https://globalfer-site.web.app`. JavaScript could read the validation JSON and displayed its validation error with no success state. A separate wrong-Origin `{}` POST returned **403** without an allow-origin header. Health returned **200**.
+- Firebase static responses independently passed `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY` and `Permissions-Policy: camera=(), microphone=(), geolocation=()`. Backend responses separately passed those headers plus production HSTS; `X-Powered-By` was absent. Express headers are not credited to Firebase Hosting.
+- Homepage, index, SPA documents, hashed JS/CSS and images retained the configured **`Cache-Control: no-cache`**. No long immutable HTML caching or cache-policy change was introduced.
+- Generated HTML/JavaScript use `/assets/...`, contain the exact public Cloud Run origin and resolved quote endpoint, and contain no obsolete GitHub Pages runtime URL. A private comparison found no configured SMTP identity/host/recipient values, SMTP secret key names, access-token patterns or service-account key material in them. No local production `.env` was created or loaded, and no Secret Manager payload was read.
+- A time-bounded review of this task's five recent Cloud Run request entries observed statuses 200, 204, 400, 403 and the rejected local preflight's 404, with zero application stdout/stderr entries. No request body, customer name/phone, configured SMTP values, environment values or tokens were found in the reviewed payload fields. Only counts/statuses were printed; this is a bounded review, not an assertion about all historical logs.
+
+### Verification and remaining release boundary
+
+`npm ci`, full and production-only `npm audit`, `npm test -- --test-reporter=dot`, and the explicitly configured `npm run build:firebase` passed before deployment and were repeated after the final configuration/documentation changes. Both audits report **zero vulnerabilities**; **167 tests pass**, with no real SMTP network access. The production build uses Vite 6.4.3 and transforms 1,595 modules. The final build is compared against the deployed files so the documentation commit does not imply an unverified frontend artifact change.
+
+Tracked changes in this task are limited to `firebase.json`, `README.md` and `SECURITY-AUDIT.md`. `Contact.jsx`, backend code, package manifests/lockfile, SMTP settings and cloud identities remain unchanged. The single focused commit is `chore(deploy): connect Firebase frontend to Cloud Run`, pushed normally to `security-hardening`; no main merge or history rewrite is part of this task.
+
+**SMTP delivery has NOT been tested end-to-end. No real SMTP connection or email delivery was initiated by these checks.** The site and safe validation path are ready for one separately authorized, controlled real quote test. That later test must verify actual delivery, mailbox receipt and log privacy before considering a merge. The shared process budgets, possible denial of mail capacity, restart/revision limits, and need for provider-wide quota monitoring remain as documented below. The legacy function also remains deployed outside the new service's counters.
+
+## Cloud Run rate-limit mitigation snapshot — 2026-09-21
 
 Scope: `C:\github\globalfer-secure`, branch `security-hardening`, based on `9b55cfe4c93d0d210763a1889d23054069509b05`. Before this update, the live service was `globalfer-api-00001-xv8` in `globalfer-site` / `southamerica-east1`, at `https://globalfer-api-nxbq6byh4q-rj.a.run.app`. The runtime change replaces the IP-keyed limiter; the sections below this one are historical snapshots. Dependencies, lockfile, frontend, Firebase configuration and container definition are unchanged.
 

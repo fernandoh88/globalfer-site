@@ -71,7 +71,7 @@ Tests inject fake SMTP behavior or generate email in memory. They do not load `.
 
 ## Environment Variables
 
-Copy `.env.example` to `.env` and fill in the SMTP values before using the quote email endpoint.
+For local development, copy `.env.example` to `.env` and supply your development SMTP configuration before sending a quote. Production settings remain in Cloud Run and Secret Manager; do not copy production credentials into this file.
 
 ```bash
 PORT=3001
@@ -95,7 +95,7 @@ Create a production-mode build for local verification:
 npm run build
 ```
 
-The default Vite base is `/`. `VITE_BASE_PATH` remains available for special builds; Firebase builds require `/`. An ordinary build deliberately permits an unset `VITE_API_URL` while the separate backend is being prepared. That build is suitable for visual review, but its quote form cannot deliver mail on Firebase Hosting until the API origin is configured.
+The default Vite base is `/`. `VITE_BASE_PATH` remains available for special builds; Firebase builds require `/`. An ordinary build permits an unset `VITE_API_URL` for local visual review. Production Hosting builds use the verified Cloud Run origin through the build environment, as shown below.
 
 Preview the production build locally:
 
@@ -105,27 +105,29 @@ npm run preview
 
 ## Deployment
 
-Firebase Hosting serves the React/Vite frontend. Express runs separately and sends quote requests through SMTP.
+Firebase Hosting now serves the React/Vite frontend connected directly to the existing Cloud Run Express API. The frontend migration was deployed and verified on 2026-09-22 UTC. Real email delivery has not been exercised.
 
 ```mermaid
 flowchart LR
   Hosting["Firebase Hosting: globalfer-site.web.app"] -->|HTTPS frontend files| Browser["React / Vite in the browser"]
-  Browser -->|HTTPS: VITE_API_URL after frontend migration| API["Cloud Run: Express API"]
+  Browser -->|HTTPS: compiled VITE_API_URL| API["Cloud Run: Express API"]
   API --> SMTP
 ```
 
 | Setting | Value/status |
 |---|---|
 | User-verified Firebase project | `globalfer-site` |
-| Intended frontend URL | `https://globalfer-site.web.app/` |
+| Live frontend URL | `https://globalfer-site.web.app/` |
 | Exact frontend origin | `https://globalfer-site.web.app` |
-| Verified default Hosting site | `globalfer-site`, confirmed by the installed CLI's read-only site lookup during emulator startup |
+| Verified default Hosting site | `globalfer-site` |
 | Backend platform | Google Cloud Run, service `globalfer-api`, region `southamerica-east1` |
 | Backend HTTPS origin | `https://globalfer-api-nxbq6byh4q-rj.a.run.app` |
+| Final Hosting version | `fc953ce63aaa0a00` (`FINALIZED`) |
+| Final Hosting release | `1790039165331000` (`DEPLOY`), `2026-09-22T01:06:05.331Z` |
 
-`.firebaserc` records only the verified default project ID. This public CLI mapping is appropriate to commit and contains no credentials. No additional aliases or Hosting targets are configured. No previous Firebase configuration was found in this clone, its ignored project files, or its nine-commit history before this correction; these are newly prepared files, not a recovered deployment record.
+`.firebaserc` records only the verified default project ID. This public CLI mapping contains no credentials. No additional aliases or Hosting targets are configured.
 
-The old GitHub Pages workflow and `.nojekyll` marker are removed from this branch. No replacement deployment workflow is enabled. The existing `main` branch and remote hosting settings have not been changed; human review and merge are separate actions.
+The old GitHub Pages workflow and `.nojekyll` marker are removed from this branch. No replacement deployment workflow is enabled; this was a manual Hosting-only deployment. Local and remote `main` remain unchanged, and no merge occurred.
 
 ### Backend and build configuration
 
@@ -137,7 +139,16 @@ FRONTEND_URL=https://globalfer-site.web.app
 
 Use HTTPS with no path or trailing slash. The existing exact-origin checks remain unchanged. Keep SMTP credentials exclusively in the backend host's environment/secret storage.
 
-The next frontend build must set `VITE_API_URL=https://globalfer-api-nxbq6byh4q-rj.a.run.app`, with no path or trailing slash. That build setting remains unset in this checkout; frontend migration and Firebase Hosting deployment are separate work. `VITE_*` values are public browser configuration and must never contain secrets.
+The deployed frontend was compiled with `VITE_API_URL=https://globalfer-api-nxbq6byh4q-rj.a.run.app`, with no path or trailing slash. It submits to that origin's `/api/orcamento` endpoint. The value was supplied through the build process environment, without an environment-file edit or a hardcoded URL in `Contact.jsx`. `VITE_*` values are public browser configuration and must never contain secrets.
+
+For an authorized manual redeployment, supply the public value in the current PowerShell session and keep it available to the Hosting predeploy hook:
+
+```powershell
+$env:VITE_API_URL = 'https://globalfer-api-nxbq6byh4q-rj.a.run.app'
+$env:VITE_BASE_PATH = '/'
+npm run build:firebase
+firebase deploy --only hosting --project globalfer-site
+```
 
 `npm run build:firebase` validates that origin, rejects the Firebase frontend origin and an incompatible base path, then builds from source. Firebase's Hosting `predeploy` hook runs this command, so a missing/invalid API origin stops a normal CLI upload before publishing an old or unconfigured `dist`. In contrast, keeping `npm run build` available without a backend preserves local verification and development. No change to Contact.jsx is needed.
 
@@ -145,9 +156,9 @@ The backend is an API-only Node service on Cloud Run. `npm start` honors injecte
 
 ### Hosting behavior and local review
 
-The following describes the checked-in configuration, which has **not** been deployed. The existing live Hosting site still sends `/api/**` to the legacy Firebase function `api` in `us-central1`; its current browser bundle uses that same-origin path. Deployment verification established this relationship before reusing its SMTP configuration. Neither that function nor Hosting is changed by the Cloud Run work.
+The checked-in Hosting configuration is deployed. The previous Hosting `/api/**` rewrite to the legacy Firebase function `api` in `us-central1` has been removed. That function itself remains unchanged. The current browser bundle calls Cloud Run directly; Hosting has no Cloud Run or Functions API rewrite.
 
-`firebase.json` publishes only `dist`. Its SPA rewrite uses `!/api{,/**}`: navigation receives `index.html`, while `/api`, `/api/` and deeper API paths are excluded and return 404. The upload ignore list also reserves `api` paths. A missing `VITE_API_URL` therefore produces a failed quote request rather than a successful HTML response masquerading as the API. No backend rewrite is configured. [Hosting configuration reference](https://firebase.google.com/docs/hosting/full-config)
+`firebase.json` publishes only `dist`. Its positive RE2 navigation rule excludes the exact `/api` path and its descendants, while allowing normal SPA navigation, including `/a`, `/ap` and `/apiary`. The rule accepts slash and backslash separators because the Windows emulator normalizes paths differently from production. The upload ignore list also reserves `api` paths. The previous negated brace glob `!/api{,/**}` passed emulator checks but incorrectly served SPA HTML for live `/api` and `/api/orcamento`; replacing that single rewrite field resolved the discrepancy. Emulator and live checks now confirm API 404 responses. [Hosting configuration reference](https://firebase.google.com/docs/hosting/full-config)
 
 Hosting sets `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY` and `Permissions-Policy: camera=(), microphone=(), geolocation=()`. These protect static responses independently of Express. CSP is deferred pending a resource review. Firebase controls HSTS for `web.app`; no manual HSTS or custom-domain policy is added. [Hosting headers](https://firebase.google.com/docs/hosting/full-config#headers)
 
@@ -160,7 +171,15 @@ npm run build
 firebase emulators:start --only hosting --project globalfer-site
 ```
 
-The configured listener is `http://127.0.0.1:5000`; the emulator UI is disabled. Check navigation, JS/CSS/images, headers, and API 404s. Do not use real quote delivery for this review. The installed CLI used the existing signed-in session to read project/site metadata during this task and confirmed the default site and URL. No login/logout or remote configuration change was performed. Emulator success does not prove deployment permissions or live behavior.
+The configured listener is `http://127.0.0.1:5000`; the emulator UI is disabled. Check navigation, JS/CSS/images, headers, and API 404s. Do not use real quote delivery for this review. The authorized deployment reused existing CLI authentication. The production routing discrepancy above demonstrates why emulator success must be followed by live verification.
+
+### Completed frontend verification
+
+The final Hosting release contains 15 files, including `assets/index-BXYJZbLl.js`. **27 emulator and 27 live HTTP checks passed**: homepage/index, JS/CSS and all 12 images matched the build bytes; navigation and `/a`, `/ap`, `/apiary` returned the SPA; seven API-path cases returned 404. Static headers and `Cache-Control: no-cache` passed without a cache-policy change.
+
+A live browser check against the same deployed bundle verified the homepage, five navigation links, 12 images and the empty quote form. A guarded invalid submission used the browser's natural production Origin, received OPTIONS 204 followed by POST 400, and displayed validation feedback. A separate wrong-Origin `{}` request returned 403. Expected cross-origin rejection from the local browser was also verified. Security headers were checked independently on Hosting and Cloud Run, including absence of backend `X-Powered-By`.
+
+The five recent backend request records reviewed had statuses 200, 204, 400, 403 and 404, with no application payload logs. The backend configuration fingerprint, generation and revision `globalfer-api-00002-vbf`, `SMTP_PASS:3`, and legacy function remained unchanged by this Hosting deployment. No SMTP connection, real email or end-to-end delivery test was performed. One controlled mail-delivery test remains a separate action requiring explicit authorization.
 
 ### Future GitHub Actions authentication
 
@@ -173,13 +192,13 @@ Before adding a deployment workflow, an administrator must:
 3. Grant that account the documented Hosting permissions, `roles/firebasehosting.admin` and `roles/serviceusage.apiKeysViewer`, on the target Firebase project. Avoid Owner/Editor roles. [Firebase Hosting roles](https://firebase.google.com/docs/projects/iam/roles-predefined-product#hosting)
 4. Protect the production GitHub environment and deployment branch. Give only the deploy job `contents: read` and `id-token: write`. Check out, build and verify first, then authenticate using the verified provider/account values and a reviewed version of `google-github-actions/auth`; use a maintained Node release. Keep credential-file creation and environment export enabled so Firebase CLI receives ADC. Its temporary ADC file is covered by `gha-creds-*.json` in `.gitignore` and must never be uploaded as an artifact.
 
-Do not use `firebase init hosting:github` for this approach: its generated integration creates and stores a service-account JSON key as a GitHub secret. No new authentication setup, IAM grants, repository variables/secrets, or remote Firebase settings were configured here. [Firebase generated GitHub integration](https://firebase.google.com/docs/hosting/github-integration)
+Do not use `firebase init hosting:github` for this approach: its generated integration creates and stores a service-account JSON key as a GitHub secret. The manual Hosting deployment did not create GitHub federation, service-account keys, repository secrets or an automated workflow. [Firebase generated GitHub integration](https://firebase.google.com/docs/hosting/github-integration)
 
-Firebase Hosting deployment requires separate authorization after backend verification and human review. The Cloud Run backend is deployed separately as described below.
+Future deployments and authentication changes require their own authorization. The completed manual Hosting release and existing Cloud Run deployment are recorded above and below.
 
 ## Backend deployment — Cloud Run
 
-Cloud Run service `globalfer-api` is deployed in project `globalfer-site`, region `southamerica-east1`, at `https://globalfer-api-nxbq6byh4q-rj.a.run.app`. Firebase Hosting remains the frontend at `https://globalfer-site.web.app/`; it has not yet been migrated to this backend. Runtime changes use immutable full-commit image tags in the existing regional Artifact Registry and deployment by digest. The rate-limit revision preserves the existing configuration and access model.
+Cloud Run service `globalfer-api` is deployed in project `globalfer-site`, region `southamerica-east1`, at `https://globalfer-api-nxbq6byh4q-rj.a.run.app`. The live Firebase frontend at `https://globalfer-site.web.app/` now calls this backend directly. Runtime changes use immutable full-commit image tags in the existing regional Artifact Registry and deployment by digest. The Hosting migration preserved the backend revision, configuration and access model.
 
 ### Runtime and container
 
@@ -221,7 +240,7 @@ These ten variables are read by the backend; the examples are formats or public 
 
 Production reuses the verified existing Firebase function's SMTP host, user and authorized sender. `QUOTE_EMAIL_TO` was reused from existing production Firebase function configuration, rather than the repository fallback. `SMTP_PASS` is injected from the existing Secret Manager version **`SMTP_PASS:3`**, never `latest`. The runtime identity `globalfer-api-runtime@globalfer-site.iam.gserviceaccount.com` has Secret Accessor on that specific secret, with no project-wide Secret Manager grant. No password was read, copied into `.env`, duplicated or rotated. Keep production configuration in the platform; the local development example above does not authorize copying production credentials. Do not set a service-account JSON key or `GOOGLE_APPLICATION_CREDENTIALS` in the container. [Cloud Run secret injection](https://docs.cloud.google.com/run/docs/configuring/services/secrets)
 
-`VITE_API_URL` and `VITE_BASE_PATH` are frontend build settings, not backend variables. `VITE_API_URL` remains unset pending the separately reviewed frontend migration.
+`VITE_API_URL` and `VITE_BASE_PATH` are frontend build settings, not backend variables. The deployed frontend uses the verified Cloud Run origin supplied through its build environment; no permanent environment-file setting was added.
 
 ### Public access, client IP and abuse controls
 
@@ -275,30 +294,28 @@ These conservative settings are preserved by the rate-limit update; they are not
 
 ### Direct API versus a future Hosting rewrite
 
-| Aspect | Direct `VITE_API_URL` — recommended initially | Later Hosting `/api/**` rewrite |
+| Aspect | Direct `VITE_API_URL` — currently deployed | Later Hosting `/api/**` rewrite |
 |---|---|---|
 | Browser origin | Cross-origin; retain exact backend CORS/Origin checks | Same frontend origin simplifies browser CORS; backend Origin validation still matters |
 | Configuration | Use the verified Cloud Run HTTPS origin and rebuild frontend | Requires actual service ID/region, API rules before SPA fallback, and revisiting the separate-origin build guard |
 | Abuse controls | Explicit process budgets; no trusted client identity | Extra routing layer does not solve client attribution or aggregate limits |
-| Visibility | Cloud Run URL publicly callable once enabled | Rewrite alone does not hide or authenticate the underlying service |
+| Visibility | Cloud Run URL is publicly callable | Rewrite alone does not hide or authenticate the underlying service |
 | Caching/timeouts | No Hosting CDN on API path; Cloud Run timeout applies | Verify API `no-store` behavior, including error responses; Hosting has its own 60-second timeout |
-| Operations | Matches the prepared branch and separates deployments | Adds routing/revision coordination and an additional failure/cache layer |
+| Operations | Current frontend calls the existing backend; deployments remain separate | Adds routing/revision coordination and an additional failure/cache layer |
 
-Keep the current Firebase configuration unchanged now. The documented Hosting integration uses public Cloud Run invocation; it should not be mistaken for an authenticated reverse proxy. A future rewrite needs dedicated routing/cache tests and a reviewed ingress model. [Firebase Cloud Run integration](https://firebase.google.com/docs/hosting/cloud-run), [Hosting cache behavior](https://firebase.google.com/docs/hosting/manage-cache)
+The deployed Firebase configuration has no API rewrite. Google's documented Hosting integration uses public Cloud Run invocation; it should not be mistaken for an authenticated reverse proxy. A future rewrite needs dedicated routing/cache tests and a reviewed ingress model. [Firebase Cloud Run integration](https://firebase.google.com/docs/hosting/cloud-run), [Hosting cache behavior](https://firebase.google.com/docs/hosting/manage-cache)
 
-### Manual prerequisites and deployment order
+### Subsequent deployments and mail verification
 
-The backend's region, registry, runtime identity, public access, secret version and resource settings were separately authorized and applied. Existing billing/APIs were verified; local Docker builds do not require a Cloud Build job. The current rate-limit change updates only the application image and its commit label, preserving runtime configuration and secret access. New infrastructure or provider changes require separate review.
+The backend's region, registry, runtime identity, public access, secret version and resource settings were separately authorized and applied. Existing billing/APIs were verified; local Docker builds do not require a Cloud Build job. The completed Hosting migration reused that service without changing its image, revision, runtime configuration or secret access. New infrastructure or provider changes require separate review.
 
-For the separately authorized frontend migration:
+For subsequent authorized work:
 
-1. Review the aggregate budgets above and provider/day monitoring; confirm the updated backend's safe negative checks and exact `FRONTEND_URL=https://globalfer-site.web.app`.
-2. Set frontend build variable `VITE_API_URL=https://globalfer-api-nxbq6byh4q-rj.a.run.app`; it is public configuration, never a secret.
-3. Rebuild with `npm run build:firebase` and review the generated frontend.
-4. Deploy Firebase Hosting through a separately authorized manual or authenticated workflow.
-5. Perform an explicitly authorized, controlled end-to-end quote test and verify delivery/log privacy; monitor rejection rates and aggregate SMTP quota.
+1. Review the aggregate budgets above and provider/day monitoring; preserve the exact backend `FRONTEND_URL=https://globalfer-site.web.app` and frontend API origin.
+2. Run required tests and audits, build from source, and review the generated frontend before an authorized Hosting-only deployment. Repeat emulator and live navigation, asset, header, API-routing and safe invalid-submission checks afterward.
+3. Obtain explicit authorization for one controlled end-to-end quote test before sending a real message. Confirm the intended recipient and test content, then verify delivery and log privacy. Monitor rejection rates and aggregate SMTP quota.
 
-Firebase Hosting deployment, frontend configuration changes and real-mail tests are outside the current backend rate-limit task. No SMTP network access is used by automated tests or safe live rejection checks.
+Frontend connection and Hosting deployment are complete. SMTP authentication, provider delivery and end-to-end receipt remain untested; successful health and invalid-input checks do not establish mail delivery. Automated tests and safe live rejection checks use no SMTP network access.
 
 ## API Endpoints
 
