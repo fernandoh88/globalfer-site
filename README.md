@@ -110,7 +110,7 @@ Firebase Hosting serves the React/Vite frontend. Express runs separately and sen
 ```mermaid
 flowchart LR
   Hosting["Firebase Hosting: globalfer-site.web.app"] -->|HTTPS frontend files| Browser["React / Vite in the browser"]
-  Browser -->|HTTPS: VITE_API_URL| API["Cloud Run: Express API (planned)"]
+  Browser -->|HTTPS: VITE_API_URL after frontend migration| API["Cloud Run: Express API"]
   API --> SMTP
 ```
 
@@ -120,8 +120,8 @@ flowchart LR
 | Intended frontend URL | `https://globalfer-site.web.app/` |
 | Exact frontend origin | `https://globalfer-site.web.app` |
 | Verified default Hosting site | `globalfer-site`, confirmed by the installed CLI's read-only site lookup during emulator startup |
-| Backend platform | Google Cloud Run is the intended candidate; no service deployed |
-| Backend HTTPS origin | Does not exist yet; no value configured |
+| Backend platform | Google Cloud Run, service `globalfer-api`, region `southamerica-east1` |
+| Backend HTTPS origin | `https://globalfer-api-nxbq6byh4q-rj.a.run.app` |
 
 `.firebaserc` records only the verified default project ID. This public CLI mapping is appropriate to commit and contains no credentials. No additional aliases or Hosting targets are configured. No previous Firebase configuration was found in this clone, its ignored project files, or its nine-commit history before this correction; these are newly prepared files, not a recovered deployment record.
 
@@ -137,13 +137,15 @@ FRONTEND_URL=https://globalfer-site.web.app
 
 Use HTTPS with no path or trailing slash. The existing exact-origin checks remain unchanged. Keep SMTP credentials exclusively in the backend host's environment/secret storage.
 
-After obtaining the real backend HTTPS origin, set `VITE_API_URL` to that origin in the frontend build environment, with no path or trailing slash. Its actual value is intentionally absent from this repository. `VITE_*` values are public browser configuration and must never contain secrets.
+The next frontend build must set `VITE_API_URL=https://globalfer-api-nxbq6byh4q-rj.a.run.app`, with no path or trailing slash. That build setting remains unset in this checkout; frontend migration and Firebase Hosting deployment are separate work. `VITE_*` values are public browser configuration and must never contain secrets.
 
 `npm run build:firebase` validates that origin, rejects the Firebase frontend origin and an incompatible base path, then builds from source. Firebase's Hosting `predeploy` hook runs this command, so a missing/invalid API origin stops a normal CLI upload before publishing an old or unconfigured `dist`. In contrast, keeping `npm run build` available without a backend preserves local verification and development. No change to Contact.jsx is needed.
 
-The backend is prepared as an API-only Node service for Cloud Run. `npm start` honors injected `PORT` (default 3001 locally); startup requires neither `.env` nor `dist`. Firebase Hosting serves production frontend files, and Vite serves them during local development. See the Cloud Run preparation and unresolved production requirements below.
+The backend is an API-only Node service on Cloud Run. `npm start` honors injected `PORT` (default 3001 locally); startup requires neither `.env` nor `dist`. Firebase Hosting serves production frontend files, and Vite serves them during local development. See the Cloud Run abuse controls and remaining operational limits below.
 
 ### Hosting behavior and local review
+
+The following describes the checked-in configuration, which has **not** been deployed. The existing live Hosting site still sends `/api/**` to the legacy Firebase function `api` in `us-central1`; its current browser bundle uses that same-origin path. Deployment verification established this relationship before reusing its SMTP configuration. Neither that function nor Hosting is changed by the Cloud Run work.
 
 `firebase.json` publishes only `dist`. Its SPA rewrite uses `!/api{,/**}`: navigation receives `index.html`, while `/api`, `/api/` and deeper API paths are excluded and return 404. The upload ignore list also reserves `api` paths. A missing `VITE_API_URL` therefore produces a failed quote request rather than a successful HTML response masquerading as the API. No backend rewrite is configured. [Hosting configuration reference](https://firebase.google.com/docs/hosting/full-config)
 
@@ -173,11 +175,11 @@ Before adding a deployment workflow, an administrator must:
 
 Do not use `firebase init hosting:github` for this approach: its generated integration creates and stores a service-account JSON key as a GitHub secret. No new authentication setup, IAM grants, repository variables/secrets, or remote Firebase settings were configured here. [Firebase generated GitHub integration](https://firebase.google.com/docs/hosting/github-integration)
 
-Actual deployment requires separate authorization after backend configuration, Hosting-site verification, authentication and human review. No deployment command or action is run by this preparation task.
+Firebase Hosting deployment requires separate authorization after backend verification and human review. The Cloud Run backend is deployed separately as described below.
 
 ## Backend deployment — Cloud Run
 
-Cloud Run in project `globalfer-site` is the intended backend candidate. No Cloud Run service, image registry, secret, IAM grant or API enablement has been created by this preparation. The proposed service name is `globalfer-api`; its actual HTTPS origin is unknown. Firebase Hosting remains the frontend at `https://globalfer-site.web.app/`.
+Cloud Run service `globalfer-api` is deployed in project `globalfer-site`, region `southamerica-east1`, at `https://globalfer-api-nxbq6byh4q-rj.a.run.app`. Firebase Hosting remains the frontend at `https://globalfer-site.web.app/`; it has not yet been migrated to this backend. Runtime changes use immutable full-commit image tags in the existing regional Artifact Registry and deployment by digest. The rate-limit revision preserves the existing configuration and access model.
 
 ### Runtime and container
 
@@ -217,23 +219,32 @@ These ten variables are read by the backend; the examples are formats or public 
 | `SMTP_PASS` | Required for sending | **Yes** | Provider-issued password/app-password | SMTP authentication secret |
 | `SMTP_FROM` | Optional; falls back to `SMTP_USER` | No; sender identity | Mailbox or display-name mailbox format | Provider-authorized From header |
 
-Keep `SMTP_PASS` in Google Secret Manager and inject a pinned secret version as the runtime environment variable. `SMTP_USER` may also use Secret Manager when the login identity is private or should be managed with its password; it can otherwise be ordinary restricted configuration. Host, port, TLS flag, origin and business email addresses do not require secret storage solely because they are configuration. Grant the dedicated runtime service identity Secret Accessor only for the required secret(s), when separately authorized. No secret IDs, service-account emails or credential values are chosen here. Do not set a service-account JSON key or `GOOGLE_APPLICATION_CREDENTIALS` in the container. [Cloud Run secret injection](https://docs.cloud.google.com/run/docs/configuring/services/secrets)
+Production reuses the verified existing Firebase function's SMTP host, user and authorized sender. `QUOTE_EMAIL_TO` was reused from existing production Firebase function configuration, rather than the repository fallback. `SMTP_PASS` is injected from the existing Secret Manager version **`SMTP_PASS:3`**, never `latest`. The runtime identity `globalfer-api-runtime@globalfer-site.iam.gserviceaccount.com` has Secret Accessor on that specific secret, with no project-wide Secret Manager grant. No password was read, copied into `.env`, duplicated or rotated. Keep production configuration in the platform; the local development example above does not authorize copying production credentials. Do not set a service-account JSON key or `GOOGLE_APPLICATION_CREDENTIALS` in the container. [Cloud Run secret injection](https://docs.cloud.google.com/run/docs/configuring/services/secrets)
 
-`VITE_API_URL` and `VITE_BASE_PATH` are frontend build settings, not backend variables. `VITE_API_URL` remains unset until Cloud Run returns the real service origin.
+`VITE_API_URL` and `VITE_BASE_PATH` are frontend build settings, not backend variables. `VITE_API_URL` remains unset pending the separately reviewed frontend migration.
 
 ### Public access, client IP and abuse controls
 
-Direct public browser requests will need public Cloud Run invocation and external ingress, unless an authenticated proxy is introduced later. Approving that access is a separate administrator action; no public-access flag or IAM command is executed here. Browser code must not contain Google credentials. The endpoint instead relies on validation, body limits, fixed recipients, SMTP protections and layered abuse controls. CORS alone is not authentication: non-browser requests can omit or forge Origin, and the existing no-Origin behavior remains allowed.
+The deployed service allows external ingress and public invocation through its disabled invoker IAM check. This previously authorized access model is preserved. Browser code must not contain Google credentials. The endpoint relies on validation, body limits, fixed recipients, SMTP protections and layered abuse controls. CORS alone is not authentication: non-browser requests can omit or forge Origin, and the existing no-Origin behavior remains allowed.
 
-`trust proxy` remains **false**. No verified fixed proxy chain for the proposed endpoint supports a safe static trust list or hop count. Express warns that trust must match actual topology, and Google load balancers can preserve attacker-supplied forwarding prefixes. Do not switch to `true` or an arbitrary hop count. [Express proxy guidance](https://expressjs.com/en/guide/behind-proxies/), [Google forwarding headers](https://docs.cloud.google.com/load-balancing/docs/https#x-forwarded-for_header)
+`trust proxy` remains **false**, and rate limiting no longer reads `request.ip` or the socket address. Express defines that IP as the immediate peer when trust is disabled. Google's external Application Load Balancer appends client/load-balancer addresses after an unverified caller-supplied `X-Forwarded-For` prefix, but that documented topology is not a fixed suffix contract for direct `run.app` ingress. Cloud Run documents TLS termination and proxying without establishing a safe exact client-IP extraction rule for this service. No authenticated alternative client-IP field was established in the reviewed runtime documentation. Do not enable `true`, select an arbitrary hop count or transplant the load-balancer positions. See the option comparison and historical Google sample caveat in [SECURITY-AUDIT.md](SECURITY-AUDIT.md). [Express proxy guidance](https://expressjs.com/en/guide/behind-proxies/), [Google forwarding headers](https://docs.cloud.google.com/load-balancing/docs/https#x-forwarded-for_header), [Cloud Run transport contract](https://docs.cloud.google.com/run/docs/container-contract#transport_layer_encryption_tls)
 
-Consequently, `request.ip` is the immediate socket peer and may identify Google proxy infrastructure rather than the visitor. Unrelated visitors can share the current eight-attempt/15-minute bucket. The in-memory limiter is per process, resets on restart and is not shared across instances/revisions. A small instance limit reduces exposure but does not create a global SMTP quota. This is acceptable only as defense-in-depth for a monitored low-volume pilot after confirming the observed grouping and provider limits; it is not reliable per-customer or fleet-wide enforcement. Broad production availability still needs an explicit abuse-control decision.
+Two explicit fixed-window budgets replace the accidental per-proxy quota:
+
+- **120 quote POST attempts per 60 seconds per process**, checked before Origin/type/body parsing. Rejected inputs count against this short budget, bounding repeated parser work without spending mail capacity.
+- **8 mail attempts per 15 minutes per process**, reserved only after Origin/type/body/schema validation and before starting SMTP. Failed or ambiguous attempts are not refunded. The reservation is synchronous, so concurrent requests cannot pass the cap while earlier mail is pending.
+
+Both use a monotonic clock and return JSON 429 with `Retry-After`. Health, preflight and unknown routes remain outside quote budgets. No IP/customer data is retained by the counters or added to logs. `X-Forwarded-For`, `X-Real-IP` and `Forwarded` never affect admission: IPv4, IPv6, malformed address strings and multiple apparent peers cannot create extra capacity. HTTP syntax errors can also be rejected by Node before Express.
+
+This is a conservative aggregate mitigation, not per-customer fairness or DoS protection. Invalid traffic can exhaust the short request budget; eight plausible quotes can still deny mail capacity to others. The initial 120/minute ceiling permits modest rejected traffic without increasing the eight-attempt SMTP exposure. Fixed windows allow boundary bursts; restarts, additional processes and overlapping revisions reset or multiply capacity. Maximum instances = 1 reduces exposure but is not a durable provider-wide quota. The unchanged legacy Firebase function also shares the SMTP provider outside these counters. A monitored low-volume frontend connection can use this mitigation, but broader availability requires reviewed provider/day quotas and monitoring; neither provider delivery nor quota settings were tested here.
+
+Existing fixed recipients, 64 KiB bodies, strict validation and Origin checks remain. A global cooldown would delay unrelated customers; client-chosen identifiers would be bypassable. A honeypot would require coordinated form/schema changes and is only a weak supplementary signal. Neither is added, and no CAPTCHA, Redis or database is introduced. Provider-wide monitoring and a separately reviewed edge/shared quota design are the next controls if abuse appears or scaling is planned.
 
 Future options include a shared rate-limit store, edge controls, or Cloud Armor behind an external Application Load Balancer. Cloud Armor requires a deliberately configured ingress path that prevents bypass through the direct service URL; it is not automatically attached to an ordinary Cloud Run URL or Firebase rewrite. No external datastore or edge infrastructure is added here.
 
 ### SMTP, health and logging
 
-The initial mail configuration should use provider-supported **465 with `SMTP_SECURE=true`**. Certificate validation stays enabled. Google documents SMTP use with Cloud Run and 465/587 are standard alternatives to externally restricted port 25. Actual provider reachability, sender authorization, quotas and any VPC egress/firewall behavior remain untested. Default egress addresses are not fixed; a provider requiring IP allowlisting needs a separate egress design. [Google SMTP example](https://docs.cloud.google.com/build/docs/configuring-notifications/configure-smtp), [network restrictions](https://docs.cloud.google.com/firewall/docs/firewalls), [static egress](https://docs.cloud.google.com/run/docs/configuring/static-outbound-ip)
+Production uses **465 with `SMTP_SECURE=true`**. Certificate validation stays enabled. Google documents SMTP use with Cloud Run and 465/587 are standard alternatives to externally restricted port 25. Actual provider reachability, sender authorization, quotas and any VPC egress/firewall behavior remain untested. Default egress addresses are not fixed; a provider requiring IP allowlisting needs a separate egress design. [Google SMTP example](https://docs.cloud.google.com/build/docs/configuring-notifications/configure-smtp), [network restrictions](https://docs.cloud.google.com/firewall/docs/firewalls), [static egress](https://docs.cloud.google.com/run/docs/configuring/static-outbound-ip)
 
 Port 587 with `SMTP_SECURE=false` currently uses opportunistic STARTTLS because the transport does not set `requireTLS`. Do not describe that mode as enforced encryption. If 587 is required, prepare and test a fail-closed STARTTLS policy before deployment. Existing DNS/connection/greeting timeouts are 10 seconds and socket timeout is 20 seconds; provider failures remain generic, HTML is escaped, sender/recipient fields stay server-controlled and the subject uses the validated visitor name. Never disable certificate checks. [Nodemailer TLS behavior](https://nodemailer.com/smtp#tls-options)
 
@@ -241,34 +252,34 @@ Port 587 with `SMTP_SECURE=false` currently uses opportunistic STARTTLS because 
 
 Cloud Logging collects stdout/stderr, so fixed categories such as `[mail] delivery_failed` and `[server] request_failed` remain useful. Startup/shutdown also log fixed categories. No request bodies, customer details, provider errors or environment values are added to application logs. Platform request logs separately contain HTTP metadata; review access/retention and aggregate error/rate-limit monitoring. Structured logging can be added later if severity/metrics need it. [Cloud Run logging](https://docs.cloud.google.com/run/docs/logging)
 
-### Proposed service settings — not applied
+### Current service settings
 
-| Setting | Initial proposal |
+| Setting | Deployed value |
 |---|---|
-| Project / suggested service | `globalfer-site` / `globalfer-api` |
-| Region | Choose before deployment; see options below |
+| Project / service | `globalfer-site` / `globalfer-api` |
+| Region | `southamerica-east1` (São Paulo) |
 | Image/runtime | Reviewed Linux amd64 image from the Dockerfile; Node 24 LTS, non-root |
 | Port | Cloud Run-injected `PORT`; platform default 8080, not fixed in application code |
 | CPU / memory | 1 vCPU / 512 MiB |
 | Minimum / service-level maximum instances | 0 / 1 for the initial monitored pilot |
 | Maximum concurrent requests per instance | 4 |
 | Request timeout | 60 seconds |
-| Billing / execution environment | Request-based / second generation; confirm probe implications separately |
+| Billing / execution environment | Request-based / second generation |
 | Health | `/api/health`; no SMTP readiness probe |
-| Runtime identity | Dedicated account with only required secret access; identity not created |
-| Invocation / ingress | Public browser invocation and external ingress need explicit approval for the direct-API design |
+| Runtime identity | `globalfer-api-runtime@globalfer-site.iam.gserviceaccount.com` |
+| Invocation / ingress | Public through disabled invoker IAM check / all ingress |
 
-These are conservative workload proposals, not applied defaults or guaranteed quotas. Maximum instances may briefly be exceeded, including during revision transitions. A Cloud Run request timeout may end the HTTP response without canceling mail work; avoid automatic retries of an ambiguous quote submission. [Scaling limits](https://docs.cloud.google.com/run/docs/configuring/max-instances), [request timeouts](https://docs.cloud.google.com/run/docs/configuring/request-timeout)
+These conservative settings are preserved by the rate-limit update; they are not guaranteed quotas. Maximum instances may briefly be exceeded, including during revision transitions. A Cloud Run request timeout may end the HTTP response without canceling mail work; avoid automatic retries of an ambiguous quote submission. [Scaling limits](https://docs.cloud.google.com/run/docs/configuring/max-instances), [request timeouts](https://docs.cloud.google.com/run/docs/configuring/request-timeout)
 
-**Region options:** propose `southamerica-east1` (São Paulo) first because Globalfer serves Marília and surrounding Brazilian customers. Compare measured latency and current pricing against `us-east1`, a region Firebase recommends for Hosting colocation. No repository setting fixes a backend region. Both support Hosting rewrites if that architecture is chosen later; Firebase Hosting does not force a US backend. [Cloud Run locations](https://docs.cloud.google.com/run/docs/locations), [Hosting integration regions](https://firebase.google.com/docs/hosting/cloud-run)
+**Region:** the authorized deployment uses `southamerica-east1` (São Paulo), near Globalfer's Brazilian customers. Firebase Hosting does not force a US backend. [Cloud Run locations](https://docs.cloud.google.com/run/docs/locations), [Hosting integration regions](https://firebase.google.com/docs/hosting/cloud-run)
 
 ### Direct API versus a future Hosting rewrite
 
 | Aspect | Direct `VITE_API_URL` — recommended initially | Later Hosting `/api/**` rewrite |
 |---|---|---|
 | Browser origin | Cross-origin; retain exact backend CORS/Origin checks | Same frontend origin simplifies browser CORS; backend Origin validation still matters |
-| Configuration | Obtain real Cloud Run HTTPS origin and rebuild frontend | Requires actual service ID/region, API rules before SPA fallback, and revisiting the separate-origin build guard |
-| Abuse controls | Current proxy/IP uncertainty and per-instance limits apply | Extra routing layer does not solve client attribution or aggregate limits |
+| Configuration | Use the verified Cloud Run HTTPS origin and rebuild frontend | Requires actual service ID/region, API rules before SPA fallback, and revisiting the separate-origin build guard |
+| Abuse controls | Explicit process budgets; no trusted client identity | Extra routing layer does not solve client attribution or aggregate limits |
 | Visibility | Cloud Run URL publicly callable once enabled | Rewrite alone does not hide or authenticate the underlying service |
 | Caching/timeouts | No Hosting CDN on API path; Cloud Run timeout applies | Verify API `no-store` behavior, including error responses; Hosting has its own 60-second timeout |
 | Operations | Matches the prepared branch and separates deployments | Adds routing/revision coordination and an additional failure/cache layer |
@@ -277,19 +288,17 @@ Keep the current Firebase configuration unchanged now. The documented Hosting in
 
 ### Manual prerequisites and deployment order
 
-Before any deployment, obtain explicit approval for the region, image registry, runtime/deployer identities, public access, secret versions and pilot abuse limits. An administrator must verify billing and enable the necessary Cloud Run, Artifact Registry and Secret Manager APIs; Cloud Build is needed only if a remote build is chosen. Registry/service-account/secret creation and least-privilege grants are separate authorized work. Build and scan the image, record its digest, confirm provider TLS/sender/quota settings, and validate proxy behavior. No remote prerequisites were changed in this preparation.
+The backend's region, registry, runtime identity, public access, secret version and resource settings were separately authorized and applied. Existing billing/APIs were verified; local Docker builds do not require a Cloud Build job. The current rate-limit change updates only the application image and its commit label, preserving runtime configuration and secret access. New infrastructure or provider changes require separate review.
 
-After those prerequisites are approved:
+For the separately authorized frontend migration:
 
-1. Deploy the Cloud Run backend with the reviewed environment/secret mappings and service settings; set the known frontend origin from the start.
-2. Obtain its **actual HTTPS origin** from the resulting service; do not derive or guess a URL.
-3. Confirm backend `FRONTEND_URL=https://globalfer-site.web.app`, with no trailing slash/path, plus health and exact-origin behavior.
-4. Configure that actual origin as frontend `VITE_API_URL`; it is public configuration, never a secret.
-5. Rebuild with `npm run build:firebase`.
-6. Deploy Firebase Hosting through a separately authorized manual or authenticated workflow.
-7. Perform one explicitly authorized, controlled end-to-end quote test and verify delivery/log privacy; monitor rejection rates and aggregate SMTP quota.
+1. Review the aggregate budgets above and provider/day monitoring; confirm the updated backend's safe negative checks and exact `FRONTEND_URL=https://globalfer-site.web.app`.
+2. Set frontend build variable `VITE_API_URL=https://globalfer-api-nxbq6byh4q-rj.a.run.app`; it is public configuration, never a secret.
+3. Rebuild with `npm run build:firebase` and review the generated frontend.
+4. Deploy Firebase Hosting through a separately authorized manual or authenticated workflow.
+5. Perform an explicitly authorized, controlled end-to-end quote test and verify delivery/log privacy; monitor rejection rates and aggregate SMTP quota.
 
-None of these deployment, IAM, API-enablement, secret-creation or real-mail actions is performed by this preparation task.
+Firebase Hosting deployment, frontend configuration changes and real-mail tests are outside the current backend rate-limit task. No SMTP network access is used by automated tests or safe live rejection checks.
 
 ## API Endpoints
 

@@ -461,15 +461,170 @@ const invalidRequests = [
   ['forbidden origins', (server) => post(server, validQuote(), { Origin: 'https://evil.example.test' }), 403],
 ]
 for (const [label, invalidRequest, status] of invalidRequests) {
-  test(`rate limit also counts ${label}`, async (t) => {
+  test(`${label} preserve all mail slots and keep their rejection after mail capacity is exhausted`, async (t) => {
     const server = await fixture(t)
     for (let index = 0; index < 8; index += 1) assert.equal((await invalidRequest(server)).status, status)
+    assert.equal(server.transports.length, 0)
+    for (let index = 0; index < 8; index += 1) assert.equal((await post(server)).status, 200)
     const response = await post(server)
     assert.equal(response.status, 429)
     assertSafe(response)
-    assert.equal(server.transports.length, 0)
+    const invalidAfterLimit = await invalidRequest(server)
+    assert.equal(invalidAfterLimit.status, status)
+    assertSafe(invalidAfterLimit)
+    assert.equal(server.transports.length, 8)
+    assert.equal(server.sent.length, 8)
   })
 }
+
+test('malformed and IPv6 forwarding identities cannot create additional mail capacity', async (t) => {
+  const server = await fixture(t)
+  const identities = [
+    '2001:db8::1',
+    '::ffff:192.0.2.1',
+    '[2001:db8::2]:443',
+    '198.51.100.1, 2001:db8::3',
+    'not-an-address',
+    'unknown',
+    '192.0.2.1:1234',
+    '',
+  ]
+  for (const identity of identities) {
+    const response = await post(server, validQuote(), {
+      'X-Forwarded-For': identity,
+      'X-Real-IP': identity,
+      Forwarded: `for="${identity}"`,
+    })
+    assert.equal(response.status, 200)
+  }
+  const limited = await post(server, validQuote(), {
+    'X-Forwarded-For': '2001:db8::ffff',
+    'X-Real-IP': '198.51.100.255',
+    Forwarded: 'for="[2001:db8::ffff]:443";proto=https',
+  })
+  assert.equal(limited.status, 429)
+  assertSafe(limited)
+  assert.equal(server.transports.length, 8)
+})
+
+test('simulated changing socket peers cannot create mail capacity and Express IP is never consulted', async (t) => {
+  const server = await fixture(t)
+  const apparentPeers = [
+    '10.128.0.1', '10.128.0.2', '192.0.2.10', '2001:db8::10',
+    '::ffff:192.0.2.10', '127.0.0.1', '::1', '2001:db8::20', '198.51.100.200',
+  ]
+  let simulatedPeerCount = 0
+  // Test-only simulation before Express runs; actual traffic stays on loopback.
+  server.server.prependListener('request', (incoming) => {
+    Object.defineProperty(incoming.socket, 'remoteAddress', {
+      configurable: true,
+      value: apparentPeers[simulatedPeerCount++],
+    })
+  })
+  Object.defineProperty(server.app.request, 'ip', {
+    configurable: true,
+    get() { assert.fail('Admission must not infer customer identity from proxy peers.') },
+  })
+  for (let index = 0; index < 8; index += 1) {
+    assert.equal((await post(server, validQuote(), { 'X-Forwarded-For': `192.0.2.${index + 1}` })).status, 200)
+  }
+  assert.equal((await post(server)).status, 429)
+  assert.equal(simulatedPeerCount, apparentPeers.length)
+  assert.equal(server.transports.length, 8)
+  assert.equal(server.logs.length, 0)
+})
+
+test('the 121st quote attempt is rejected before parsing while health and unknown routes remain exempt', async (t) => {
+  const server = await fixture(t, { now: () => 0 })
+  for (let index = 0; index < 120; index += 1) {
+    const [, invalidRequest, status] = invalidRequests[index % invalidRequests.length]
+    assert.equal((await invalidRequest(server)).status, status)
+    const health = await request(server, { method: 'GET', path: '/api/health' })
+    assert.equal(health.status, 200)
+    assert.deepEqual(health.body, { ok: true })
+    const unknown = await request(server, { path: '/api/unknown' })
+    assert.equal(unknown.status, 404)
+  }
+  const limited = await request(server, {
+    raw: '{',
+    headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': '2001:db8::1234' },
+  })
+  assert.equal(limited.status, 429)
+  assert.equal(limited.headers['retry-after'], '60')
+  assertSafe(limited)
+  assert.equal((await post(server)).status, 429)
+  assert.equal((await request(server, { method: 'GET', path: '/api/health' })).status, 200)
+  assert.equal((await request(server, { path: '/api/unknown' })).status, 404)
+  assert.equal(server.transports.length, 0)
+})
+
+test('the short request window recovers without replenishing exhausted mail capacity', async (t) => {
+  let timestamp = 0
+  const server = await fixture(t, { now: () => timestamp })
+  for (let index = 0; index < 8; index += 1) assert.equal((await post(server)).status, 200)
+  for (let index = 0; index < 112; index += 1) assert.equal((await post(server, {})).status, 400)
+  const limited = await post(server, {})
+  assert.equal(limited.status, 429)
+  assert.equal(limited.headers['retry-after'], '60')
+  timestamp = 59_999
+  const almostReset = await post(server, {})
+  assert.equal(almostReset.status, 429)
+  assert.equal(almostReset.headers['retry-after'], '1')
+  timestamp = 60_000
+  assert.equal((await post(server, {})).status, 400)
+  const mailLimited = await post(server)
+  assert.equal(mailLimited.status, 429)
+  assert.equal(mailLimited.headers['retry-after'], '840')
+  assertSafe(mailLimited)
+  assert.equal(server.transports.length, 8)
+})
+
+test('mail expiry starts at the first eligible quote rather than preceding invalid traffic', async (t) => {
+  let timestamp = 0
+  const server = await fixture(t, { now: () => timestamp })
+  assert.equal((await post(server, {})).status, 400)
+  timestamp = 60_000
+  for (let index = 0; index < 8; index += 1) assert.equal((await post(server)).status, 200)
+  timestamp = 900_000
+  const limited = await post(server)
+  assert.equal(limited.status, 429)
+  assert.equal(limited.headers['retry-after'], '60')
+  timestamp = 960_000
+  assert.equal((await post(server)).status, 200)
+  assert.equal(server.transports.length, 9)
+})
+
+test('concurrent requests reserve mail capacity before awaiting SMTP completion', async (t) => {
+  let releaseMail
+  const mailCompletion = new Promise((resolve) => { releaseMail = resolve })
+  const server = await fixture(t, { sendMail: () => mailCompletion })
+  const pending = Array.from({ length: 9 }, () => post(server))
+  try {
+    const firstCompleted = await Promise.race(pending)
+    assert.equal(firstCompleted.status, 429)
+    assertSafe(firstCompleted)
+    assert.equal(server.transports.length, 8)
+    assert.equal(server.sent.length, 8)
+    releaseMail()
+    const responses = await Promise.all(pending)
+    assert.equal(responses.filter(({ status }) => status === 200).length, 8)
+    assert.equal(responses.filter(({ status }) => status === 429).length, 1)
+    assert.equal(server.transports.length, 8)
+  } finally {
+    releaseMail()
+    await Promise.allSettled(pending)
+  }
+})
+
+test('separate application instances retain independent mail budgets', async (t) => {
+  const first = await fixture(t)
+  const second = await fixture(t)
+  for (let index = 0; index < 8; index += 1) assert.equal((await post(first)).status, 200)
+  assert.equal((await post(first)).status, 429)
+  assert.equal((await post(second)).status, 200)
+  assert.equal(first.transports.length, 8)
+  assert.equal(second.transports.length, 1)
+})
 
 test('health is exempt from quote quota before and after the quote limit', async (t) => {
   const server = await fixture(t)
@@ -515,6 +670,27 @@ const providerError = (code) => Object.assign(new Error([
   command: `AUTH PLAIN ${fakeEnv.SMTP_PASS}`,
   environment: { SMTP_PASS: fakeEnv.SMTP_PASS },
 })
+
+for (const failureStage of ['delivery', 'transport construction', 'missing configuration']) {
+  test(`${failureStage} failures consume mail reservations without refunds`, async (t) => {
+    const server = await fixture(t, failureStage === 'delivery'
+      ? { sendMail: async () => { throw providerError('EAUTH') } }
+      : failureStage === 'transport construction'
+        ? { createTransport: () => { throw providerError('EAUTH') } }
+        : { env: { SMTP_HOST: '', SMTP_PORT: '', SMTP_USER: '', SMTP_PASS: '' } })
+    for (let index = 0; index < 8; index += 1) {
+      const response = await post(server)
+      assert.equal(response.status, 500)
+      assertSafe(response)
+    }
+    const limited = await post(server)
+    assert.equal(limited.status, 429)
+    assertSafe(limited)
+    assert.equal(server.transports.length, failureStage === 'missing configuration' ? 0 : 8)
+    assert.equal(server.sent.length, failureStage === 'delivery' ? 8 : 0)
+    assert.equal(server.logs.length, 8)
+  })
+}
 
 for (const code of ['EAUTH', 'ECONNECTION', 'ETIMEDOUT', 'ESOCKET', 'arbitrary-provider-private-sentinel']) {
   test(`SMTP ${code} returns a generic response and logs no provider details`, async (t) => {

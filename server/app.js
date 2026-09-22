@@ -1,10 +1,13 @@
 import cors from 'cors'
 import express from 'express'
 import nodemailer from 'nodemailer'
+import { performance } from 'node:perf_hooks'
+
 const maxProducts = 30
-const rateWindowMs = 15 * 60 * 1000
-const maxRequestsPerWindow = 8
-const maxRateLimitEntries = 10_000
+const requestWindowMs = 60 * 1000
+const maxRequestsPerWindow = 120
+const mailWindowMs = 15 * 60 * 1000
+const maxMailAttemptsPerWindow = 8
 const limits = { name: 120, phone: 40, city: 120, message: 2000, product: 120, measurements: 1000 }
 const quoteFields = new Set(['name', 'phone', 'city', 'message', 'items'])
 const itemFields = new Set(['product', 'measurements'])
@@ -113,15 +116,14 @@ export const createApp = ({
   env = process.env,
   createTransport = nodemailer.createTransport,
   logger = console,
-  now = Date.now,
+  now = () => performance.now(),
 } = {}) => {
   const app = express()
   const frontendUrl = env.FRONTEND_URL || 'http://127.0.0.1:5173'
   const quoteEmailTo = env.QUOTE_EMAIL_TO || 'globalfer_marilia@yahoo.com.br'
-  const requestCounts = new Map()
 
   app.disable('x-powered-by')
-  // Configure specific trusted proxy addresses only after reviewing deployment topology.
+  // No documented direct Cloud Run topology justifies trusting forwarding headers.
   app.set('trust proxy', false)
   app.use((request, response, next) => {
     response.setHeader('X-Content-Type-Options', 'nosniff')
@@ -139,30 +141,31 @@ export const createApp = ({
     allowedHeaders: ['Content-Type'],
   }))
 
-  const rateLimitQuote = (request, response, next) => {
-    const currentTime = now()
-    // Entries remain in insertion/expiry order; no background timer retains the app.
-    for (const [key, entry] of requestCounts) {
-      if (currentTime - entry.startedAt < rateWindowMs) break
-      requestCounts.delete(key)
-    }
-    const key = request.ip
-    const current = requestCounts.get(key)
-    const reject = (startedAt) => {
-      response.setHeader('Retry-After', Math.max(1, Math.ceil((rateWindowMs - (currentTime - startedAt)) / 1000)))
-      return response.status(429).json({ message: 'Muitas solicitações. Tente novamente mais tarde.' })
-    }
-    if (!current) {
-      // Do not evict active entries, which would let clients reset their quota.
-      if (requestCounts.size >= maxRateLimitEntries) {
-        return reject(requestCounts.values().next().value.startedAt)
+  // Explicit process budgets: proxy peers and caller-supplied headers are not identities.
+  // Two counters retain no IP addresses or quote data. The default clock is monotonic.
+  const createBudget = (maximum, windowMs) => {
+    let startedAt
+    let count = 0
+    return (response) => {
+      const currentTime = now()
+      if (startedAt === undefined || currentTime - startedAt >= windowMs) {
+        startedAt = currentTime
+        count = 0
       }
-      requestCounts.set(key, { startedAt: currentTime, count: 1 })
-      return next()
+      if (count >= maximum) {
+        const remainingMs = windowMs - Math.max(0, currentTime - startedAt)
+        response.setHeader('Retry-After', Math.max(1, Math.ceil(remainingMs / 1000)))
+        response.status(429).json({ message: 'Muitas solicitações. Tente novamente mais tarde.' })
+        return false
+      }
+      count += 1
+      return true
     }
-    if (current.count >= maxRequestsPerWindow) return reject(current.startedAt)
-    current.count += 1
-    return next()
+  }
+  const admitQuoteRequest = createBudget(maxRequestsPerWindow, requestWindowMs)
+  const reserveMailAttempt = createBudget(maxMailAttemptsPerWindow, mailWindowMs)
+  const rateLimitQuote = (_request, response, next) => {
+    if (admitQuoteRequest(response)) next()
   }
 
   const checkQuoteRequest = (request, response, next) => {
@@ -207,6 +210,8 @@ export const createApp = ({
     if (errors.length > 0) {
       return response.status(400).json({ message: 'Revise os dados do orçamento.', errors })
     }
+    // Reserve synchronously before SMTP; failed/ambiguous attempts are not refunded.
+    if (!reserveMailAttempt(response)) return
     try {
       const transporter = createTransporter()
       await transporter.sendMail({

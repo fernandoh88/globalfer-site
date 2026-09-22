@@ -1,6 +1,61 @@
 # Globalfer Security Audit
 
-## Current backend preparation: Cloud Run — 2026-09-21
+## Current Cloud Run rate-limit mitigation — 2026-09-21
+
+Scope: `C:\github\globalfer-secure`, branch `security-hardening`, based on `9b55cfe4c93d0d210763a1889d23054069509b05`. Before this update, the live service was `globalfer-api-00001-xv8` in `globalfer-site` / `southamerica-east1`, at `https://globalfer-api-nxbq6byh4q-rj.a.run.app`. The runtime change replaces the IP-keyed limiter; the sections below this one are historical snapshots. Dependencies, lockfile, frontend, Firebase configuration and container definition are unchanged.
+
+### Verified behavior and authoritative proxy assumptions
+
+The previous code explicitly set `trust proxy=false`, keyed a bounded Map by `request.ip`, and counted every quote POST before Origin, content type, parsing or validation. Express therefore used the socket peer; callers behind the same Google proxy could share eight attempts for 15 minutes. Existing forged-header tests verified that changing `X-Forwarded-For`, `X-Real-IP` and `Forwarded` could not bypass that peer's quota. Inspection and documentation research preceded this change.
+
+Current official documentation supports the following limited conclusions:
+
+- Express with disabled proxy trust uses the socket peer. `true` trusts the leftmost forwarded value and requires a trusted last proxy to remove/overwrite caller-supplied headers. Numeric hop counts depend on every route having the assumed topology. [Express behind proxies](https://expressjs.com/en/guide/behind-proxies/)
+- Cloud Run terminates public TLS and forwards requests to the container; its transport contract does not specify an authenticated client-IP field, trusted proxy CIDRs or an exact hostile-header-resistant `X-Forwarded-For` suffix for direct `run.app` requests. This is a limit of the reviewed contract, not a claim that Google never adds forwarding information. [Cloud Run container contract](https://docs.cloud.google.com/run/docs/container-contract#transport_layer_encryption_tls)
+- Google's external Application Load Balancer appends `<client-ip>,<load-balancer-ip>` after any existing `X-Forwarded-For` prefix, which it does not validate. Further downstream proxies may append addresses. Those documented positions describe that load-balancer topology; they do not establish this direct Cloud Run endpoint's topology. [Google forwarding behavior](https://docs.cloud.google.com/load-balancing/docs/https#x-forwarded-for_header)
+- The Cloud Functions header reference describes forwarded address lists for functions deployed using the Cloud Functions API; it does not provide the missing direct-service trust contract. Cloud Logging's request metadata is asynchronous operational evidence, not an authenticated synchronous identifier delivered to this middleware. [Functions headers](https://docs.cloud.google.com/functions/docs/reference/headers), [Cloud Run logging](https://docs.cloud.google.com/run/docs/logging)
+
+A Google-maintained sample historically recommended `trust proxy=1` in [PR 3586](https://github.com/GoogleCloudPlatform/nodejs-docs-samples/pull/3586). The containing sample was subsequently [removed as deprecated](https://github.com/GoogleCloudPlatform/nodejs-docs-samples/commit/2e713dd16067b68c445bfb141f887ceb63ad7a08). Removal does not prove that setting unsafe, but neither that sample nor the current service contract establishes a stable all-ingress security guarantee for this deployment. This pass therefore does not adopt a hop count.
+
+| Option | Assessment for this direct service |
+|---|---|
+| A. Socket peer / current `request.ip` | Identifies a proxy, not reliably a customer; different peers could also multiply mail capacity. |
+| B. `trust proxy=true` | Unsafe without a verified sanitizing boundary; caller-supplied prefixes must not become identities. |
+| C. Fixed hop count | No verified invariant for all permitted paths; historical sample guidance is insufficient for that assertion. |
+| D. Parse a Google-appended position | Valid only with the documented, controlled topology; do not transplant external ALB positions into direct Cloud Run. |
+| E. Platform metadata | No authenticated synchronous alternative client-IP field established by the reviewed runtime contract. |
+| F. Adjust conservative process quotas | Selected with explicit identity-free counters, rather than retaining misleading per-proxy buckets or merely increasing mail capacity. |
+
+### Implemented budgets and non-IP defenses
+
+`trust proxy` remains **false**. Admission uses neither `request.ip`, `request.socket.remoteAddress` nor any forwarded/client identifier. Two fixed-window counters replace the Map:
+
+1. **120 quote POSTs / 60 seconds / process**, before Origin/type checks and JSON parsing. All quote attempts consume this short budget; over-budget requests receive 429 before parsing.
+2. **8 mail attempts / 15 minutes / process**, after Origin/type/body/schema checks. Capacity is reserved synchronously before transport construction and SMTP awaits; configuration, transport and delivery failures count without refunds.
+
+The 120/minute initial ceiling permits modest invalid traffic without spending scarce 15-minute mail capacity. The eight-attempt mail ceiling is retained rather than raising SMTP exposure. Default time is monotonic `performance.now()`, with injectable time for deterministic expiry tests. Both budgets return fixed JSON 429 and bounded positive `Retry-After`. Health, preflight and unknown routes are exempt. Only two counters are retained, with no customer/IP identifiers. IPv4, IPv6, mapped addresses and malformed address strings in forwarding headers are ignored for admission; malformed HTTP syntax can be rejected by Node before Express. No application IP logging is introduced.
+
+Existing 64 KiB parsing, compression rejection, field validation, fixed sender/recipient, escaped mail content, TLS validation, generic provider errors and exact Origin/CORS handling remain. Origin is not authentication and non-browser callers can omit/forge it. The service remains at maximum one instance, concurrency four, CPU one, memory 512 MiB, minimum zero and timeout 60 seconds. A global submission cooldown would delay unrelated customers; a caller-selected identifier would offer trivial bypass. A honeypot would require coordinated form/schema changes and supplies only a weak supplementary signal. No honeypot, CAPTCHA, Redis, database or new infrastructure is added.
+
+Residual limits: these are shared process budgets, not per-customer fairness, a durable SMTP quota or DoS protection. Attackers can consume the short request budget or submit eight plausible quotes to block mail capacity. Fixed windows permit boundary bursts; restarts, extra processes and overlapping revisions reset/multiply capacity. Maximum instances can temporarily be exceeded. The unchanged legacy Firebase `api` function uses the same provider outside these counters. Review provider-wide/day quotas and monitoring before broad availability, and reviewed shared/edge controls before scaling. Real provider delivery/quota enforcement remains untested. [Cloud Run maximum instances](https://docs.cloud.google.com/run/docs/configuring/max-instances)
+
+### Verification and deployment boundary
+
+| Check | Result |
+|---|---|
+| `npm ci` | Pass; 168 packages installed from unchanged lockfile |
+| `node --check server/index.js` / `node --check server/app.js` | Pass |
+| `npm audit` / `npm audit --omit=dev` | Pass; zero vulnerabilities in both |
+| `npm test -- --test-reporter=dot` | Pass; **167 tests**, zero failures (162 API, 2 mail composition, 3 shutdown) |
+| `npm run build` | Pass; Vite 6.4.3, 1,595 modules |
+
+Ten new regressions cover malformed/IPv6 forwarding, unreadable `request.ip` plus simulated changing IPv4/IPv6 socket peers, pre-parser exhaustion and exempt routes, independent expiry/Retry-After, first-eligible mail-window start, concurrent reservations, process-local scope and three failure stages without refunds. Five prior invalid-attempt tests intentionally change their quota expectation: each invalid category now preserves all eight mail slots and still returns its own rejection status after mail exhaustion. Existing validation, forged-header, health and 15-minute reset coverage remains. All mail operations use injected fake transports or in-memory MIME composition; no tests load production SMTP credentials or access SMTP networks.
+
+The authorized rollout is one normal commit/push on `security-hardening`, an immutable full-SHA image in the existing Artifact Registry, and an image-only Cloud Run revision plus commit label. Preserve the existing environment, `SMTP_PASS:3`, runtime identity `globalfer-api-runtime@globalfer-site.iam.gserviceaccount.com`, public invocation/ingress and resource settings. Non-image runtime configuration is compared privately against the pre-update service. The production recipient was reused from the verified existing Firebase function, not the repository fallback. No secret payload is read, copied, printed or rotated; no IAM changes are required for this revision.
+
+After rollout, only health and malformed JSON, wrong Origin, unsupported type, small oversized-body and unknown-route checks are permitted. No valid production quote or real email is sent. Live Hosting still routes `/api/**` to the legacy Firebase function; neither is modified. Frontend connection is appropriate only as a monitored low-volume pilot with the shared-budget limitations understood, not proof of mail delivery or comprehensive abuse prevention. The next separate frontend build must use **`VITE_API_URL=https://globalfer-api-nxbq6byh4q-rj.a.run.app`**, then `npm run build:firebase`; do not deploy Hosting or test real delivery as part of this backend task. The resulting image digest and revision belong in the deployment completion report; this committed audit records the verified source behavior and rollout constraints.
+
+## Historical backend preparation: Cloud Run — 2026-09-21
 
 Cloud Run is the intended backend candidate for project `globalfer-site`; no service, actual backend HTTPS origin or cloud resources have been created. Firebase Hosting remains the frontend at `https://globalfer-site.web.app/`, with exact backend setting `FRONTEND_URL=https://globalfer-site.web.app`. `VITE_API_URL` remains unset. Firebase configuration, frontend code, dependencies and lockfile are unchanged in this preparation. The Firebase correction and earlier security evidence below are historical snapshots.
 
