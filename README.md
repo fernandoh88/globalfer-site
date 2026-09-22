@@ -105,7 +105,7 @@ npm run preview
 
 ## Deployment
 
-Firebase Hosting now serves the React/Vite frontend connected directly to the existing Cloud Run Express API. The frontend migration was deployed and verified on 2026-09-22 UTC. Real email delivery has not been exercised.
+Firebase Hosting now serves the React/Vite frontend connected directly to the existing Cloud Run Express API. The frontend migration was deployed and verified on 2026-09-22 UTC. One separately authorized production quote subsequently completed successfully through SMTP provider acceptance; final inbox delivery has not been independently verified by automation.
 
 ```mermaid
 flowchart LR
@@ -179,7 +179,13 @@ The final Hosting release contains 15 files, including `assets/index-BXYJZbLl.js
 
 A live browser check against the same deployed bundle verified the homepage, five navigation links, 12 images and the empty quote form. A guarded invalid submission used the browser's natural production Origin, received OPTIONS 204 followed by POST 400, and displayed validation feedback. A separate wrong-Origin `{}` request returned 403. Expected cross-origin rejection from the local browser was also verified. Security headers were checked independently on Hosting and Cloud Run, including absence of backend `X-Powered-By`.
 
-The five recent backend request records reviewed had statuses 200, 204, 400, 403 and 404, with no application payload logs. The backend configuration fingerprint, generation and revision `globalfer-api-00002-vbf`, `SMTP_PASS:3`, and legacy function remained unchanged by this Hosting deployment. No SMTP connection, real email or end-to-end delivery test was performed. One controlled mail-delivery test remains a separate action requiring explicit authorization.
+The five backend request records reviewed during Hosting deployment had statuses 200, 204, 400, 403 and 404, with no application payload logs. The backend configuration fingerprint, generation and revision `globalfer-api-00002-vbf`, `SMTP_PASS:3`, and legacy function remained unchanged by this Hosting deployment. Those deployment checks did not contact SMTP; the subsequent authorized production quote is recorded below.
+
+### Controlled production quote verification
+
+At **2026-09-22T01:25:06Z**, exactly one authorized production quote produced exactly one Cloud Run POST with HTTP **200**, one frontend success state and one form reset. Nodemailer completed successfully and the SMTP provider accepted the message. No retry or duplicate POST was observed, and the log review for that attempt found no sensitive information.
+
+**Final inbox delivery was not independently verified by automation. No additional production quote or retry is authorized.** The remaining manual check is receipt of the already submitted message in the intended mailbox; provider acceptance alone does not establish inbox delivery.
 
 ### Future GitHub Actions authentication
 
@@ -255,7 +261,7 @@ Two explicit fixed-window budgets replace the accidental per-proxy quota:
 
 Both use a monotonic clock and return JSON 429 with `Retry-After`. Health, preflight and unknown routes remain outside quote budgets. No IP/customer data is retained by the counters or added to logs. `X-Forwarded-For`, `X-Real-IP` and `Forwarded` never affect admission: IPv4, IPv6, malformed address strings and multiple apparent peers cannot create extra capacity. HTTP syntax errors can also be rejected by Node before Express.
 
-This is a conservative aggregate mitigation, not per-customer fairness or DoS protection. Invalid traffic can exhaust the short request budget; eight plausible quotes can still deny mail capacity to others. The initial 120/minute ceiling permits modest rejected traffic without increasing the eight-attempt SMTP exposure. Fixed windows allow boundary bursts; restarts, additional processes and overlapping revisions reset or multiply capacity. Maximum instances = 1 reduces exposure but is not a durable provider-wide quota. The unchanged legacy Firebase function also shares the SMTP provider outside these counters. A monitored low-volume frontend connection can use this mitigation, but broader availability requires reviewed provider/day quotas and monitoring; neither provider delivery nor quota settings were tested here.
+This is a conservative aggregate mitigation, not per-customer fairness or DoS protection. Invalid traffic can exhaust the short request budget; eight plausible quotes can still deny mail capacity to others. The initial 120/minute ceiling permits modest rejected traffic without increasing the eight-attempt SMTP exposure. Fixed windows allow boundary bursts; restarts, additional processes and overlapping revisions reset or multiply capacity. Maximum instances = 1 reduces exposure but is not a durable provider-wide quota. The unchanged legacy Firebase function also shares the SMTP provider outside these counters. A monitored low-volume frontend connection can use this mitigation, but broader availability requires reviewed provider/day quotas and monitoring. The controlled quote established SMTP acceptance for one attempt; provider-wide quota enforcement and monitoring remain unverified.
 
 Existing fixed recipients, 64 KiB bodies, strict validation and Origin checks remain. A global cooldown would delay unrelated customers; client-chosen identifiers would be bypassable. A honeypot would require coordinated form/schema changes and is only a weak supplementary signal. Neither is added, and no CAPTCHA, Redis or database is introduced. Provider-wide monitoring and a separately reviewed edge/shared quota design are the next controls if abuse appears or scaling is planned.
 
@@ -263,7 +269,7 @@ Future options include a shared rate-limit store, edge controls, or Cloud Armor 
 
 ### SMTP, health and logging
 
-Production uses **465 with `SMTP_SECURE=true`**. Certificate validation stays enabled. Google documents SMTP use with Cloud Run and 465/587 are standard alternatives to externally restricted port 25. Actual provider reachability, sender authorization, quotas and any VPC egress/firewall behavior remain untested. Default egress addresses are not fixed; a provider requiring IP allowlisting needs a separate egress design. [Google SMTP example](https://docs.cloud.google.com/build/docs/configuring-notifications/configure-smtp), [network restrictions](https://docs.cloud.google.com/firewall/docs/firewalls), [static egress](https://docs.cloud.google.com/run/docs/configuring/static-outbound-ip)
+Production uses **465 with `SMTP_SECURE=true`**. Certificate validation stays enabled. Google documents SMTP use with Cloud Run and 465/587 are standard alternatives to externally restricted port 25. The controlled quote verified provider connectivity, SMTP authentication and message acceptance with the existing production configuration. It did not independently establish final inbox delivery, provider-wide quotas or the behavior of other VPC egress/firewall configurations. Default egress addresses are not fixed; a provider requiring IP allowlisting needs a separate egress design. [Google SMTP example](https://docs.cloud.google.com/build/docs/configuring-notifications/configure-smtp), [network restrictions](https://docs.cloud.google.com/firewall/docs/firewalls), [static egress](https://docs.cloud.google.com/run/docs/configuring/static-outbound-ip)
 
 Port 587 with `SMTP_SECURE=false` currently uses opportunistic STARTTLS because the transport does not set `requireTLS`. Do not describe that mode as enforced encryption. If 587 is required, prepare and test a fail-closed STARTTLS policy before deployment. Existing DNS/connection/greeting timeouts are 10 seconds and socket timeout is 20 seconds; provider failures remain generic, HTML is escaped, sender/recipient fields stay server-controlled and the subject uses the validated visitor name. Never disable certificate checks. [Nodemailer TLS behavior](https://nodemailer.com/smtp#tls-options)
 
@@ -313,9 +319,9 @@ For subsequent authorized work:
 
 1. Review the aggregate budgets above and provider/day monitoring; preserve the exact backend `FRONTEND_URL=https://globalfer-site.web.app` and frontend API origin.
 2. Run required tests and audits, build from source, and review the generated frontend before an authorized Hosting-only deployment. Repeat emulator and live navigation, asset, header, API-routing and safe invalid-submission checks afterward.
-3. Obtain explicit authorization for one controlled end-to-end quote test before sending a real message. Confirm the intended recipient and test content, then verify delivery and log privacy. Monitor rejection rates and aggregate SMTP quota.
+3. Manually confirm receipt of the already submitted controlled message in the intended mailbox. No additional quote or retry is authorized. Continue monitoring rejection rates and aggregate SMTP quota.
 
-Frontend connection and Hosting deployment are complete. SMTP authentication, provider delivery and end-to-end receipt remain untested; successful health and invalid-input checks do not establish mail delivery. Automated tests and safe live rejection checks use no SMTP network access.
+Frontend connection and Hosting deployment are complete. The one controlled quote confirmed successful Nodemailer completion and SMTP provider acceptance; final inbox delivery remains the outstanding manual verification. Health and invalid-input checks alone do not establish mail delivery. Automated tests and safe live rejection checks use no SMTP network access.
 
 ## API Endpoints
 
