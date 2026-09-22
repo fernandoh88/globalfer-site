@@ -1,57 +1,99 @@
 .footer {
-  color: #d9e0ea;
+  color: #c2cbd2;
   background: var(--color-navy);
+  border-top: 3px solid var(--color-orange);
 }
 
 .container {
-  width: min(100% - 40px, var(--container));
-  margin: 0 auto;
+  composes: container from global;
   display: grid;
-  grid-template-columns: 1.4fr 0.7fr 1fr 0.9fr;
-  gap: 38px;
-  padding: 58px 0 42px;
+  grid-template-columns: minmax(0, 1fr) minmax(100px, 0.6fr) minmax(0, 1.5fr) minmax(140px, 0.75fr);
+  gap: clamp(24px, 3vw, 44px);
+  padding-block: 64px 48px;
+}
+
+.container > div {
+  min-width: 0;
 }
 
 .logo {
   display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
   color: var(--color-white);
-  font-size: 1.45rem;
-  font-weight: 900;
+  font-size: 1.35rem;
+  font-weight: 750;
+  letter-spacing: -0.025em;
+}
+
+.logoMark {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  color: var(--color-navy);
+  background: var(--color-white);
+  border-bottom: 3px solid var(--color-orange);
+  border-radius: var(--radius-small);
+  font-family: var(--font-heading);
+  font-size: 1.4rem;
+  font-weight: 700;
 }
 
 .brand p {
-  max-width: 300px;
-  margin: 14px 0 0;
-  color: #aeb8c5;
+  max-width: 24ch;
+  margin: 18px 0 0;
+  color: #b4c0c9;
+  font-size: 0.92rem;
+  line-height: 1.75;
 }
 
 .footer h3 {
-  margin: 0 0 14px;
+  margin: 10px 0 18px;
   color: var(--color-white);
-  font-size: 1rem;
+  font-family: var(--font-body);
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1.5;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.footer address {
+  font-style: normal;
 }
 
 .links,
 .socials {
   display: grid;
-  gap: 10px;
+  gap: 0;
 }
 
 .links a,
-.socials a {
+.socials a,
+.contactList a {
   width: fit-content;
-  color: #b8c2cf;
-  transition: color 180ms ease;
+  max-width: 100%;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  color: #c2cbd2;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  transition: color var(--transition);
 }
 
 .links a:hover,
-.socials a:hover {
+.socials a:hover,
+.contactList a:hover,
+.bottom a:hover {
   color: var(--color-orange);
 }
 
 .contactList {
   display: grid;
-  gap: 12px;
+  gap: 0;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -61,40 +103,113 @@
 .socials a {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 11px;
+}
+
+.contactList a {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .contactList svg,
 .socials svg {
+  flex-shrink: 0;
   color: var(--color-orange);
 }
 
+.contactList .address {
+  align-items: flex-start;
+  padding-top: 12px;
+  font-size: 0.88rem;
+  line-height: 1.75;
+}
+
+.address svg {
+  margin-top: 3px;
+}
+
+.socials {
+  gap: 8px;
+}
+
+.socials .whatsapp {
+  width: fit-content;
+  min-height: 44px;
+  padding: 10px 14px;
+  color: var(--color-navy);
+  background: var(--color-orange);
+  border: 1px solid var(--color-orange);
+  border-radius: var(--radius-small);
+  font-weight: 700;
+  transition: background var(--transition), transform var(--transition);
+}
+
+.socials .whatsapp svg {
+  color: currentColor;
+}
+
+.socials .whatsapp:hover {
+  color: var(--color-navy);
+  background: #ffb83f;
+  transform: translateY(-1px);
+}
+
 .bottom {
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: 1px solid #34414d;
 }
 
-.bottom span {
-  width: min(100% - 40px, var(--container));
-  display: block;
-  margin: 0 auto;
-  padding: 20px 0;
-  color: #aeb8c5;
-  font-size: 0.94rem;
+.bottomInner {
+  composes: container from global;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 24px;
+  padding-block: 16px;
+  color: #b4c0c9;
+  font-size: 0.8rem;
+  line-height: 1.65;
 }
 
-@media (max-width: 900px) {
+.bottom a {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  flex-shrink: 0;
+  color: #c2cbd2;
+  transition: color var(--transition);
+}
+
+.bottom a span {
+  color: var(--color-orange);
+  font-size: 1.1rem;
+}
+
+@media (max-width: 960px) {
   .container {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 36px 48px;
   }
 }
 
-@media (max-width: 620px) {
+@media (max-width: 640px) {
   .container {
-    width: min(100% - 28px, var(--container));
     grid-template-columns: 1fr;
+    gap: 28px;
+    padding-block: 44px 36px;
   }
 
-  .bottom span {
-    width: min(100% - 28px, var(--container));
+  .footer h3 {
+    margin: 0 0 12px;
+  }
+
+  .links {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 20px;
+  }
+
+  .bottomInner {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
