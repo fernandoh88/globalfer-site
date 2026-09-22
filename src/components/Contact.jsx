@@ -99,47 +99,51 @@ function Contact() {
   }
 
   return (
-    <section className={styles.section} id="contato">
+    <section className={styles.section} id="contato" aria-labelledby="contact-heading">
       <div className={styles.container}>
         <div className={styles.content}>
           <p className={styles.eyebrow}>Solicite seu orçamento</p>
-          <h2>Envie as medidas da sua ferragem e fale com a equipe Globalfer</h2>
+          <h2 id="contact-heading">Envie as medidas da sua ferragem e fale com a equipe Globalfer</h2>
           <p>
             Adicione os produtos desejados, informe as medidas de cada item e envie sua solicitação para nossa equipe.
           </p>
           <div className={styles.contactCards}>
-            <a href="https://wa.me/5514997094240">
-              <MessageCircle size={24} />
+            <a className={styles.whatsapp} href="https://wa.me/5514997094240">
+              <MessageCircle size={22} aria-hidden="true" />
               <span>Chamar no WhatsApp</span>
             </a>
-            <div>
-              <Phone size={24} />
+            <a className={styles.phone} href="tel:+5514997094240">
+              <Phone size={20} aria-hidden="true" />
               <span>(14) 99709-4240</span>
-            </div>
+            </a>
           </div>
         </div>
 
-        <form className={styles.form} onSubmit={handleSubmit}>
+        <form className={styles.form} onSubmit={handleSubmit} aria-label="Solicitação de orçamento" aria-busy={isSending}>
+          <div className={styles.formHeading}>
+            <h3>Dados de contato</h3>
+            <p>Campos obrigatórios, exceto a mensagem.</p>
+          </div>
           <div className={styles.row}>
             <label>
               Nome
-              <input type="text" name="nome" placeholder="Seu nome" maxLength={120} required />
+              <input type="text" name="nome" autoComplete="name" placeholder="Seu nome" maxLength={120} required />
             </label>
             <label>
               Telefone / WhatsApp
-              <input type="tel" name="telefone" placeholder="(00) 00000-0000" maxLength={40} required />
+              <input type="tel" name="telefone" autoComplete="tel" placeholder="(00) 00000-0000" maxLength={40} required />
             </label>
           </div>
 
           <label>
             Cidade
-            <input type="text" name="cidade" placeholder="Sua cidade" maxLength={120} required />
+            <input type="text" name="cidade" autoComplete="address-level2" placeholder="Sua cidade" maxLength={120} required />
           </label>
 
           <div className={styles.productsHeader}>
             <div>
               <h3>Produtos do orçamento</h3>
-              <p>{quoteItems.length} de {maxProducts} produtos adicionados</p>
+              <p role="status">{quoteItems.length} de {maxProducts} produtos adicionados</p>
             </div>
             <button
               className={styles.addButton}
@@ -147,16 +151,19 @@ function Contact() {
               onClick={addQuoteItem}
               disabled={quoteItems.length >= maxProducts || isSending}
             >
-              <Plus size={18} />
+              <Plus size={18} aria-hidden="true" />
               Adicionar produto
             </button>
           </div>
 
           <div className={styles.quoteItems}>
             {quoteItems.map((item, index) => (
-              <div className={styles.quoteItem} key={item.id}>
+              <div className={styles.quoteItem} key={item.id} role="group" aria-labelledby={`quote-item-${item.id}`}>
                 <div className={styles.quoteItemHeader}>
-                  <strong>Produto {index + 1}</strong>
+                  <h4 id={`quote-item-${item.id}`}>
+                    <span aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
+                    Produto {index + 1}
+                  </h4>
                   <button
                     className={styles.removeButton}
                     type="button"
@@ -164,7 +171,7 @@ function Contact() {
                     disabled={quoteItems.length === 1 || isSending}
                     aria-label={`Remover produto ${index + 1}`}
                   >
-                    <Trash2 size={18} />
+                    <Trash2 size={18} aria-hidden="true" />
                   </button>
                 </div>
 
@@ -206,15 +213,15 @@ function Contact() {
             <textarea name="mensagem" rows="4" placeholder="Conte como a Globalfer pode ajudar" maxLength={2000} />
           </label>
 
-          <button type="submit" disabled={isSending}>
+          <button className={styles.submitButton} type="submit" disabled={isSending}>
             {isSending ? 'Enviando solicitação...' : 'Enviar Solicitação'}
-            <Send size={18} />
+            <Send size={18} aria-hidden="true" />
           </button>
 
-          {error && <p className={styles.error}>{error}</p>}
+          {error && <p className={styles.error} role="alert">{error}</p>}
 
           {submitted && (
-            <p className={styles.success}>
+            <p className={styles.success} role="status">
               Obrigado! Sua solicitação foi enviada. A equipe Globalfer entrará em contato em breve.
             </p>
           )}

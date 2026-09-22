@@ -1,4 +1,4 @@
-import { FacebookIcon, Instagram, Mail, MapPin, MessageCircle, Phone } from 'lucide-react'
+import { FacebookIcon, Mail, MapPin, MessageCircle, Phone } from 'lucide-react'
 import styles from '../styles/Footer.module.css'
 
 const links = [
@@ -15,14 +15,15 @@ function Footer() {
       <div className={styles.container}>
         <div className={styles.brand}>
           <a href="#inicio" className={styles.logo}>
-            Globalfer
+            <span className={styles.logoMark} aria-hidden="true">G</span>
+            <span>Globalfer</span>
           </a>
           <p>Ferragem armada para construção civil</p>
         </div>
 
         <div>
-          <h3>Links</h3>
-          <nav className={styles.links}>
+          <h3>Navegue</h3>
+          <nav className={styles.links} aria-label="Navegação do rodapé">
             {links.map((link) => (
               <a href={link.href} key={link.href}>
                 {link.label}
@@ -33,35 +34,37 @@ function Footer() {
 
         <div>
           <h3>Contato</h3>
-          <ul className={styles.contactList}>
-            <li>
-              <Phone size={18} />
-              (14) 99709-4240
-            </li>
-            <li>
-              <Phone size={18} />
-              (14) 3415-1049
-            </li>
-            <li>
-              <Mail size={18} />
-              globalfer_marilia@yahoo.com.br
-            </li>
-            <li>
-              <MapPin size={18} />
-              Avenida Sampaio Vidal, 45, Marília, SP, Brazil
-            </li>
-          </ul>
+          <address>
+            <ul className={styles.contactList}>
+              <li>
+                <Phone size={17} aria-hidden="true" />
+                <a href="tel:+5514997094240">(14) 99709-4240</a>
+              </li>
+              <li>
+                <Phone size={17} aria-hidden="true" />
+                <a href="tel:+551434151049">(14) 3415-1049</a>
+              </li>
+              <li>
+                <Mail size={17} aria-hidden="true" />
+                <a href="mailto:globalfer_marilia@yahoo.com.br">globalfer_marilia@yahoo.com.br</a>
+              </li>
+              <li className={styles.address}>
+                <MapPin size={17} aria-hidden="true" />
+                <span>Avenida Sampaio Vidal, 45<br />Marília, SP, Brasil</span>
+              </li>
+            </ul>
+          </address>
         </div>
 
         <div>
           <h3>Atendimento</h3>
           <div className={styles.socials}>
-            <a href="https://wa.me/5514997094240">
-              <MessageCircle size={19} />
+            <a className={styles.whatsapp} href="https://wa.me/5514997094240">
+              <MessageCircle size={19} aria-hidden="true" />
               WhatsApp
             </a>
             <a href="https://www.facebook.com/ferragistaglobalfer/?locale=pt_BR">
-              <FacebookIcon size={19} />
+              <FacebookIcon size={19} aria-hidden="true" />
               Facebook
             </a>
           </div>
@@ -69,7 +72,10 @@ function Footer() {
       </div>
 
       <div className={styles.bottom}>
-        <span>© {new Date().getFullYear()} Globalfer. Todos os direitos reservados.</span>
+        <div className={styles.bottomInner}>
+          <span>© {new Date().getFullYear()} Globalfer. Todos os direitos reservados.</span>
+          <a href="#inicio">Voltar ao início <span aria-hidden="true">↑</span></a>
+        </div>
       </div>
     </footer>
   )

@@ -12,27 +12,29 @@ const values = [
 
 function WhyChooseUs() {
   return (
-    <section className={styles.section}>
-      <div className={styles.container}>
+    <section className={styles.section} aria-labelledby="diferenciais-title">
+      <div className={`container ${styles.container}`}>
         <div className={styles.content}>
-          <p className={styles.eyebrow}>Por que escolher a Globalfer</p>
-          <h2>Ferragem organizada, atendimento claro e mais praticidade para sua obra</h2>
-          <p>
+          <p className={`eyebrow ${styles.eyebrow}`}>Por que escolher a Globalfer</p>
+          <h2 className="section-title" id="diferenciais-title">
+            Ferragem organizada, atendimento claro e mais praticidade para sua obra
+          </h2>
+          <p className={`section-copy ${styles.description}`}>
             Trabalhamos para entregar peças preparadas com atenção às medidas, qualidade na montagem e compromisso com a rotina de quem constrói.
           </p>
         </div>
 
-        <div className={styles.list}>
+        <ul className={styles.list} role="list">
           {values.map((value) => {
             const Icon = value.icon
             return (
-              <div className={styles.item} key={value.title}>
-                <Icon size={22} />
+              <li className={styles.item} key={value.title}>
+                <Icon size={23} strokeWidth={1.7} aria-hidden="true" />
                 <span>{value.title}</span>
-              </div>
+              </li>
             )
           })}
-        </div>
+        </ul>
       </div>
     </section>
   )

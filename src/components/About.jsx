@@ -5,32 +5,48 @@ const companyImage = `${import.meta.env.BASE_URL}assets/globalfer-capa.jpg`
 
 function About() {
   return (
-    <section className={styles.section} id="sobre">
-      <div className={styles.container}>
-        <div className={styles.imageBlock}>
-          <img src={companyImage} alt="Globalfer ferragens armadas sob medida" />
-          <div className={styles.badge}>
-            <ShieldCheck size={26} />
+    <section className={styles.section} id="sobre" aria-labelledby="sobre-title">
+      <div className={`container ${styles.container}`}>
+        <figure className={styles.imageBlock}>
+          <img
+            src={companyImage}
+            alt="Fachada da Globalfer com a identificação de ferragens armadas sob medida"
+            width="640"
+            height="480"
+            loading="lazy"
+            decoding="async"
+          />
+          <figcaption className={styles.badge}>
+            <ShieldCheck size={24} strokeWidth={1.7} aria-hidden="true" />
             <span>Compromisso com a obra</span>
-          </div>
-        </div>
+          </figcaption>
+        </figure>
 
         <div className={styles.content}>
-          <p className={styles.eyebrow}>Sobre a Globalfer</p>
-          <h2>Uma fornecedora preparada para simplificar o trabalho no canteiro</h2>
-          <p>
-            A Globalfer atua no fornecimento de ferragem armada para construção civil, oferecendo soluções práticas e sob medida para obras de diferentes portes. Nosso objetivo é facilitar o trabalho no canteiro, entregando peças preparadas com qualidade, organização e compromisso.
+          <p className="eyebrow">Sobre a Globalfer</p>
+          <h2 className="section-title" id="sobre-title">
+            Uma fornecedora preparada para simplificar o trabalho no canteiro
+          </h2>
+          <p className="section-copy">
+            A Globalfer atua no fornecimento de ferragem armada para construção civil, oferecendo soluções práticas e sob medida para obras de diferentes portes.
           </p>
-          <div className={styles.metrics}>
-            <div>
-              <Building2 size={24} />
-              <strong>Obras de diferentes portes</strong>
-              <span>Atendimento para clientes residenciais, engenheiros, pedreiros e construtoras.</span>
+          <p className="section-copy">
+            Nosso objetivo é facilitar o trabalho no canteiro, entregando peças preparadas com qualidade, organização e compromisso.
+          </p>
+          <div className={styles.values}>
+            <div className={styles.value}>
+              <Building2 size={23} strokeWidth={1.7} aria-hidden="true" />
+              <div>
+                <h3>Obras de diferentes portes</h3>
+                <p>Atendimento para clientes residenciais, engenheiros, pedreiros e construtoras.</p>
+              </div>
             </div>
-            <div>
-              <ShieldCheck size={24} />
-              <strong>Processo organizado</strong>
-              <span>Pedidos tratados com clareza para apoiar o planejamento da construção.</span>
+            <div className={styles.value}>
+              <ShieldCheck size={23} strokeWidth={1.7} aria-hidden="true" />
+              <div>
+                <h3>Processo organizado</h3>
+                <p>Pedidos tratados com clareza para apoiar o planejamento da construção.</p>
+              </div>
             </div>
           </div>
         </div>

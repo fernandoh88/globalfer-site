@@ -10,8 +10,11 @@ import Footer from './components/Footer.jsx'
 function App() {
   return (
     <>
+      <a className="skipLink" href="#conteudo">
+        Pular para o conteúdo
+      </a>
       <Header />
-      <main>
+      <main id="conteudo" tabIndex={-1}>
         <Hero />
         <Products />
         <Services />
