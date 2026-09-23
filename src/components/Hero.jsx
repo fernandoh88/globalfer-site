@@ -32,8 +32,10 @@ function Hero() {
               Medidas sob encomenda
             </li>
             <li>
-              <Check size={16} aria-hidden="true" />
-              Atendimento direto
+              <a className={styles.trustLink} href="#contato">
+                <Check size={16} aria-hidden="true" />
+                Atendimento direto
+              </a>
             </li>
             <li>
               <Check size={16} aria-hidden="true" />

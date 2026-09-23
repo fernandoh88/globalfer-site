@@ -123,6 +123,20 @@
   color: var(--color-orange);
 }
 
+.trustLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 44px;
+  border-radius: var(--radius-small);
+  text-underline-offset: 4px;
+}
+
+.trustLink:hover, .trustLink:focus-visible {
+  color: var(--color-orange);
+  text-decoration: underline;
+}
+
 .visual {
   position: relative;
   margin: 0;

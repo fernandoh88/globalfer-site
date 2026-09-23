@@ -5,31 +5,65 @@
 
 .sectionHeader {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
   align-items: end;
   gap: clamp(28px, 6vw, 80px);
-  margin-bottom: clamp(28px, 4vw, 44px);
+  margin-bottom: clamp(32px, 4vw, 48px);
 }
 
-.sectionHeader > p {
+.eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.eyebrow::before {
+  content: '';
+  width: 28px;
+  height: 2px;
+  background: var(--color-orange);
+}
+
+.sectionHeader h2 {
+  max-width: 19ch;
+}
+
+.introduction > p {
+  max-width: 48ch;
   margin: 0;
+}
+
+.contactLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  margin-top: 14px;
+  color: var(--color-orange-dark);
+  border-radius: var(--radius-small);
+  font-size: 0.9375rem;
+  font-weight: 750;
+  text-underline-offset: 4px;
+}
+
+.contactLink:hover, .contactLink:focus-visible {
+  text-decoration: underline;
 }
 
 .grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1px;
-  overflow: hidden;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  background: var(--color-border);
+  gap: 20px;
 }
 
 .card {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
-  padding: clamp(24px, 3vw, 34px);
-  background: var(--color-white);
-  transition: background-color var(--transition);
+  padding: clamp(24px, 2.5vw, 32px);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: #f8f9fa;
 }
 
 .cardTop {
@@ -37,17 +71,18 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 24px;
+  margin-bottom: 22px;
 }
 
 .iconBox {
   display: grid;
-  width: 50px;
-  height: 50px;
+  width: 48px;
+  height: 48px;
   place-items: center;
-  color: var(--color-orange-dark);
-  background: var(--color-light-steel);
-  border-radius: var(--radius-small);
+  color: var(--color-navy);
+  background: var(--color-white);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
 }
 
 .number {
@@ -59,8 +94,7 @@
 }
 
 .card h3 {
-  min-height: 2.8em;
-  margin: 0 0 12px;
+  margin: 0;
   color: var(--color-navy);
   font-size: 1.08rem;
   font-weight: 700;
@@ -68,23 +102,61 @@
 }
 
 .card p {
-  margin: 0;
+  margin: 12px 0 0;
   color: var(--color-muted);
-  font-size: 0.96rem;
+  font-size: 0.9375rem;
   line-height: 1.7;
 }
 
-@media (hover: hover) {
-  .card:hover {
-    background: var(--color-light-steel);
-  }
+.contactCard {
+  color: var(--color-white);
+  background: var(--color-navy);
+  border-color: var(--color-navy);
+  transition: background-color var(--transition), border-color var(--transition);
+}
+
+.contactCard .iconBox {
+  color: var(--color-orange);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.contactCard .number, .contactCard p {
+  color: #c9d1d8;
+}
+
+.contactCard h3 {
+  color: var(--color-white);
+}
+
+.cardAction {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding-top: 16px;
+  margin-top: 20px;
+  color: var(--color-orange);
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  font-size: 0.9rem;
+  font-weight: 750;
+}
+
+.contactCard:hover, .contactCard:focus-visible {
+  background: #1d3041;
+  border-color: var(--color-orange);
+}
+
+.contactCard:hover .cardAction, .contactCard:focus-visible .cardAction {
+  text-decoration: underline;
+  text-underline-offset: 4px;
 }
 
 @media (max-width: 960px) {
   .sectionHeader {
     grid-template-columns: 1fr;
-    gap: 18px;
-    max-width: 720px;
+    gap: 24px;
   }
 
   .grid {
@@ -95,13 +167,10 @@
 @media (max-width: 640px) {
   .grid {
     grid-template-columns: 1fr;
+    gap: 16px;
   }
 
   .cardTop {
     margin-bottom: 20px;
-  }
-
-  .card h3 {
-    min-height: 0;
   }
 }

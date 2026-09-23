@@ -47,6 +47,7 @@
 }
 
 .contactCards a {
+  max-width: 100%;
   min-height: var(--button-height);
   display: inline-flex;
   align-items: center;
@@ -74,16 +75,21 @@
   transform: translateY(-1px);
 }
 
-.phone {
+.phone, .email {
   padding: 8px 4px;
   color: var(--color-navy);
 }
 
-.phone svg {
+.phone svg, .email svg {
   color: var(--color-muted);
 }
 
-.phone:hover {
+.email span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.phone:hover, .phone:focus-visible, .email:hover, .email:focus-visible {
   text-decoration: underline;
   text-underline-offset: 4px;
 }

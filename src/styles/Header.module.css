@@ -274,3 +274,10 @@
     display: none;
   }
 }
+
+@media (prefers-reduced-motion: reduce) {
+  /* Avoid inherited visibility transitions delaying the opening menu's focus. */
+  .nav, .nav * {
+    transition: none !important;
+  }
+}
