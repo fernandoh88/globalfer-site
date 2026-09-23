@@ -2,6 +2,7 @@ import cors from 'cors'
 import express from 'express'
 import nodemailer from 'nodemailer'
 import { performance } from 'node:perf_hooks'
+import { createWhatsAppNotifier as defaultCreateWhatsAppNotifier } from './whatsapp.js'
 
 const maxProducts = 30
 const requestWindowMs = 60 * 1000
@@ -117,10 +118,12 @@ export const createApp = ({
   createTransport = nodemailer.createTransport,
   logger = console,
   now = () => performance.now(),
+  createWhatsAppNotifier = defaultCreateWhatsAppNotifier,
 } = {}) => {
   const app = express()
   const frontendUrl = env.FRONTEND_URL || 'http://127.0.0.1:5173'
   const quoteEmailTo = env.QUOTE_EMAIL_TO || 'fernando403@gmail.com,globalfer_marilia@yahoo.com.br'
+  const notifyWhatsApp = createWhatsAppNotifier({ env, logger })
 
   app.disable('x-powered-by')
   // No documented direct Cloud Run topology justifies trusting forwarding headers.
@@ -210,6 +213,7 @@ export const createApp = ({
     if (errors.length > 0) {
       return response.status(400).json({ message: 'Revise os dados do orçamento.', errors })
     }
+    // One reservation covers email and at most one secondary WhatsApp attempt.
     // Reserve synchronously before SMTP; failed/ambiguous attempts are not refunded.
     if (!reserveMailAttempt(response)) return
     try {
@@ -222,7 +226,6 @@ export const createApp = ({
         text: buildTextEmail(data),
         html: buildHtmlEmail(data),
       })
-      return response.json({ message: 'Solicitação enviada com sucesso.' })
     } catch {
       // Provider errors (including their codes) may contain credentials or other secrets.
       logger.error('[mail] delivery_failed')
@@ -230,6 +233,14 @@ export const createApp = ({
         message: 'Não foi possível enviar o orçamento agora. Tente novamente em instantes.',
       })
     }
+    // Email has succeeded. Secondary errors must not invite duplicate quote emails.
+    try {
+      await notifyWhatsApp(data)
+    } catch {
+      // Also contain unexpected failures from an injected notifier.
+      logger.error('[whatsapp] delivery_failed')
+    }
+    return response.json({ message: 'Solicitação enviada com sucesso.' })
   })
 
   // Firebase Hosting (or Vite locally) serves the frontend; this process is API-only.

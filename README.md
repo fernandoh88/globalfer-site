@@ -88,11 +88,13 @@ public/assets/  Images and static files
 server/
   index.js      Environment loading and server startup
   app.js        Express application, validation and quote email
+  whatsapp.js   Optional bounded Meta template notification after email succeeds
   shutdown.js   Bounded draining on process termination
 tests/          API, mail composition and shutdown tests
 scripts/
   build-firebase.mjs  Hosting build configuration validation
 docs/screenshots/  Desktop, tablet, mobile and quote-form previews
+docs/whatsapp-notifications.md  Manual Meta and Cloud Run setup prerequisites
 firebase.json   Hosting routes, headers and local emulator
 .firebaserc     Public Firebase project mapping
 Dockerfile      Nonroot Cloud Run backend image
@@ -146,6 +148,14 @@ A nonempty `QUOTE_EMAIL_TO` replaces the entire repository fallback list; an abs
 
 `VITE_API_URL` is public build-time browser configuration, not a secret. `VITE_BASE_PATH` defaults to `/` and must remain `/` for Firebase builds. Never put credentials in any `VITE_*` variable.
 
+## Optional WhatsApp notifications
+
+Email remains the primary quote channel. After the existing email succeeds, the backend can await one bounded staff notification through the official [Meta WhatsApp Business Platform Cloud API](https://developers.facebook.com/docs/whatsapp/cloud-api/). It uses an approved template so business-initiated alerts can be sent outside the 24-hour customer service window. A WhatsApp failure still returns the existing customer success response, avoiding a retry prompted by an already-successful email. The attempt has a five-second deadline and no automatic retry.
+
+Notifications are disabled unless `WHATSAPP_ENABLED=true`. Server configuration requires `WHATSAPP_GRAPH_API_VERSION`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_TO`, `WHATSAPP_TEMPLATE_NAME`, `WHATSAPP_TEMPLATE_LANGUAGE` and `WHATSAPP_ACCESS_TOKEN`. The sender ID and authorized staff recipient are separate settings; customer input cannot choose either. Store the production access token in Google Secret Manager, and keep every WhatsApp setting out of `VITE_*` and React.
+
+The full quote stays in email; WhatsApp receives a short Unicode-safe summary under the same eligible-send budget. See [the setup and deployment plan](docs/whatsapp-notifications.md) for exact variables, the proposed template, policy checks and manual prerequisites. This feature has not been deployed or enabled, and no real WhatsApp message has been sent during its implementation. The frontend and Firebase Hosting require no changes.
+
 ## Testing
 
 ```bash
@@ -156,12 +166,12 @@ npm audit --omit=dev
 
 | Check | Latest verified result |
 | --- | --- |
-| `npm test` | 179 tests passing |
+| `npm test` | 250 tests passing |
 | `npm audit` | 0 vulnerabilities |
 | `npm audit --omit=dev` | 0 vulnerabilities |
 | `npm run build` | Passed |
 
-These results were recorded during the visual refresh. Tests use fake SMTP behavior or compose messages in memory; they do not load `.env`, contact an SMTP provider or send email. See [SECURITY-AUDIT.md](SECURITY-AUDIT.md) for detailed security evidence and historical review records.
+These results were recorded while preparing the optional WhatsApp integration. All 250 tests also pass in the production Node 24.21.0 container with external networking disabled (`--network none`). Tests inject WhatsApp responses and use fake SMTP behavior or compose email in memory; they do not load `.env`, contact Meta/an SMTP provider or send real messages. See [SECURITY-AUDIT.md](SECURITY-AUDIT.md) for detailed security evidence and historical review records.
 
 ### Interface verification
 
@@ -263,16 +273,19 @@ These endpoints belong to Cloud Run, not Firebase Hosting.
 | Endpoint | Behavior |
 | --- | --- |
 | `GET /api/health` | Returns `{ "ok": true }`; checks process availability without contacting SMTP. |
-| `POST /api/orcamento` | Validates a JSON quote and sends one message to the configured recipient list. |
+| `POST /api/orcamento` | Validates a JSON quote, sends one email to the configured recipient list and, when enabled, attempts one staff WhatsApp notification after email succeeds. |
 
 The quote schema accepts `name`, `phone`, `city`, optional `message`, and `items` containing `product` and `measurements`. Required strings must be nonempty. Limits are 120 characters for name, city and product; 40 for phone; 2,000 for message; and 1,000 for measurements. Unknown fields are rejected.
 
 Responses include 200 for successful SMTP handoff, 400 for malformed or invalid input, 403 for a mismatched Origin, 413 for an oversized body, 415 for unsupported content type or compression, 429 for exhausted budgets with `Retry-After`, and a generic 500 for mail failures. Unknown routes, including `/` on the API host, return safe JSON 404 responses.
+
+WhatsApp configuration/provider failures after email success preserve HTTP 200 and `Solicitação enviada com sucesso.`; provider details are never returned. Email failure skips WhatsApp. SMTP acceptance and Meta API acceptance do not prove final delivery.
 
 ## Operational notes and limitations
 
 - **Shared budgets:** each process admits up to 120 quote POST attempts per 60 seconds before Origin, type and body checks. It reserves up to 8 eligible mail attempts per 15 minutes after validation and before SMTP. Failed or ambiguous attempts are not refunded. A quote addressed to two recipients consumes one reservation; provider recipient quotas may count differently. Health, preflight and unknown routes are outside these budgets.
 - **Availability:** limits are shared across callers, not keyed by user or IP. Invalid traffic can exhaust admission; plausible quotes can exhaust mail capacity. Counters reset on restart, fixed windows permit boundary bursts, and extra processes or overlapping revisions can multiply capacity. The service-level maximum is constrained to 1, but this is not a durable provider-wide quota.
 - **Provider monitoring:** review aggregate provider quotas, rejection rates and delivery failures. The legacy Firebase function remains deployed and uses the same SMTP provider outside these counters. Do not assume this API's budgets cover all mail activity.
+- **Optional WhatsApp costs:** each existing eligible-send reservation permits at most one WhatsApp API attempt after email succeeds. Meta template charges, messaging limits, quality restrictions and recipient consent still apply; process counters are not a durable provider-wide spending limit. See the [WhatsApp operational plan](docs/whatsapp-notifications.md).
 - **Delivery uncertainty:** SMTP handoff does not prove inbox delivery. HTTP timeouts or the eight-second shutdown drain can interrupt a request while mail work may still complete. Avoid automatic retries after an ambiguous submission; investigate the existing attempt first.
 - **Health and logs:** `/api/health` checks process availability, not SMTP configuration, authentication or delivery. Review Cloud Logging access and retention because platform request metadata is separate from the application's safe log messages.

@@ -9,3 +9,4 @@ server/**
 !server/app.js
 !server/index.js
 !server/shutdown.js
+!server/whatsapp.js
