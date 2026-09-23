@@ -75,12 +75,12 @@
   transform: translateY(-1px);
 }
 
-.phone, .email {
+.email {
   padding: 8px 4px;
   color: var(--color-navy);
 }
 
-.phone svg, .email svg {
+.email svg {
   color: var(--color-muted);
 }
 
@@ -89,7 +89,7 @@
   overflow-wrap: anywhere;
 }
 
-.phone:hover, .phone:focus-visible, .email:hover, .email:focus-visible {
+.email:hover, .email:focus-visible {
   text-decoration: underline;
   text-underline-offset: 4px;
 }

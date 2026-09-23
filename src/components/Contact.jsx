@@ -1,7 +1,9 @@
-import { Mail, MessageCircle, Phone, Plus, Send, Trash2 } from 'lucide-react'
+import { Mail, MessageCircle, Plus, Send, Trash2 } from 'lucide-react'
 import { useState } from 'react'
+import { phoneNumbers, whatsappUrl } from '../data/contact.js'
 import { products } from '../data/products.js'
 import styles from '../styles/Contact.module.css'
+import PhoneCopyButton from './PhoneCopyButton.jsx'
 
 const maxProducts = 30
 const apiUrl = import.meta.env.VITE_API_URL || ''
@@ -108,18 +110,12 @@ function Contact() {
             Adicione os produtos desejados, informe as medidas de cada item e envie sua solicitação para nossa equipe.
           </p>
           <div className={styles.contactCards}>
-            <a className={styles.whatsapp} href="https://wa.me/5514997094240">
+            <a className={styles.whatsapp} href={whatsappUrl}>
               <MessageCircle size={22} aria-hidden="true" />
               <span>Chamar no WhatsApp</span>
             </a>
-            <a className={styles.phone} href="tel:+5514997094240">
-              <Phone size={20} aria-hidden="true" />
-              <span>(14) 99709-4240</span>
-            </a>
-            <a className={styles.phone} href="tel:+551434151049" aria-label="Ligar para o telefone fixo: (14) 3415-1049">
-              <Phone size={20} aria-hidden="true" />
-              <span>(14) 3415-1049</span>
-            </a>
+            <PhoneCopyButton phone={phoneNumbers.mobile} variant="contact" />
+            <PhoneCopyButton phone={phoneNumbers.landline} variant="contact" />
             <a className={styles.email} href="mailto:globalfer_marilia@yahoo.com.br">
               <Mail size={20} aria-hidden="true" />
               <span>globalfer_marilia@yahoo.com.br</span>
