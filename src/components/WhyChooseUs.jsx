@@ -7,7 +7,7 @@ const values = [
   { title: 'Qualidade na montagem', icon: ShieldCheck },
   { title: 'Redução de desperdício na obra', icon: TrendingDown },
   { title: 'Praticidade para pedreiros, engenheiros e construtoras', icon: Users },
-  { title: 'Atendimento direto e fácil pelo WhatsApp', icon: MessageCircle },
+  { title: 'Atendimento direto e fácil pelo WhatsApp', icon: MessageCircle, href: '#contato' },
 ]
 
 function WhyChooseUs() {
@@ -30,7 +30,11 @@ function WhyChooseUs() {
             return (
               <li className={styles.item} key={value.title}>
                 <Icon size={23} strokeWidth={1.7} aria-hidden="true" />
-                <span>{value.title}</span>
+                {value.href ? (
+                  <a className={styles.itemLink} href={value.href}>{value.title}</a>
+                ) : (
+                  <span>{value.title}</span>
+                )}
               </li>
             )
           })}

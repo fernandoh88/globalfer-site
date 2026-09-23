@@ -58,6 +58,18 @@
   color: var(--color-orange);
 }
 
+.itemLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  text-underline-offset: 4px;
+}
+
+.itemLink:hover, .itemLink:focus-visible {
+  color: var(--color-orange);
+  text-decoration: underline;
+}
+
 @media (max-width: 960px) {
   .container {
     grid-template-columns: 1fr;
