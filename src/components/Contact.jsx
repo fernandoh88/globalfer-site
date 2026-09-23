@@ -1,9 +1,9 @@
-import { Mail, MessageCircle, Plus, Send, Trash2 } from 'lucide-react'
+import { MessageCircle, Plus, Send, Trash2 } from 'lucide-react'
 import { useState } from 'react'
-import { phoneNumbers, whatsappUrl } from '../data/contact.js'
+import { whatsappUrl } from '../data/contact.js'
 import { products } from '../data/products.js'
 import styles from '../styles/Contact.module.css'
-import PhoneCopyButton from './PhoneCopyButton.jsx'
+import ContactDetails from './ContactDetails.jsx'
 
 const maxProducts = 30
 const apiUrl = import.meta.env.VITE_API_URL || ''
@@ -102,10 +102,11 @@ function Contact() {
 
   return (
     <section className={styles.section} id="contato" aria-labelledby="contact-heading">
+      <ContactDetails />
       <div className={styles.container}>
         <div className={styles.content}>
           <p className={styles.eyebrow}>Solicite seu orçamento</p>
-          <h2 id="contact-heading">Envie as medidas da sua ferragem e fale com a equipe Globalfer</h2>
+          <h2>Envie as medidas da sua ferragem e fale com a equipe Globalfer</h2>
           <p>
             Adicione os produtos desejados, informe as medidas de cada item e envie sua solicitação para nossa equipe.
           </p>
@@ -113,12 +114,6 @@ function Contact() {
             <a className={styles.whatsapp} href={whatsappUrl}>
               <MessageCircle size={22} aria-hidden="true" />
               <span>Chamar no WhatsApp</span>
-            </a>
-            <PhoneCopyButton phone={phoneNumbers.mobile} variant="contact" />
-            <PhoneCopyButton phone={phoneNumbers.landline} variant="contact" />
-            <a className={styles.email} href="mailto:globalfer_marilia@yahoo.com.br">
-              <Mail size={20} aria-hidden="true" />
-              <span>globalfer_marilia@yahoo.com.br</span>
             </a>
           </div>
         </div>

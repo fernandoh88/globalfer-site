@@ -75,25 +75,6 @@
   transform: translateY(-1px);
 }
 
-.email {
-  padding: 8px 4px;
-  color: var(--color-navy);
-}
-
-.email svg {
-  color: var(--color-muted);
-}
-
-.email span {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.email:hover, .email:focus-visible {
-  text-decoration: underline;
-  text-underline-offset: 4px;
-}
-
 .form {
   min-width: 0;
   display: grid;
