@@ -1,4 +1,5 @@
 import { FacebookIcon, Mail, MapPin, MessageCircle, Phone } from 'lucide-react'
+import { businessAddress, phoneNumbers, publicEmail } from '../data/contact.js'
 import styles from '../styles/Footer.module.css'
 
 const links = [
@@ -38,19 +39,19 @@ function Footer() {
             <ul className={styles.contactList}>
               <li>
                 <Phone size={17} aria-hidden="true" />
-                <a href="#contato" aria-label="Ver opções de contato para (14) 99709-4240" title="Ver opções de contato">(14) 99709-4240</a>
+                <a href="#contato" aria-label={`Ver opções de contato para ${phoneNumbers.mobile.display}`} title="Ver opções de contato">{phoneNumbers.mobile.display}</a>
               </li>
               <li>
                 <Phone size={17} aria-hidden="true" />
-                <a href="#contato" aria-label="Ver opções de contato para (14) 3415-1049" title="Ver opções de contato">(14) 3415-1049</a>
+                <a href="#contato" aria-label={`Ver opções de contato para ${phoneNumbers.landline.display}`} title="Ver opções de contato">{phoneNumbers.landline.display}</a>
               </li>
               <li>
                 <Mail size={17} aria-hidden="true" />
-                <a href="#contato" aria-label="Ver opções de contato para globalfer_marilia@yahoo.com.br" title="Ver opções de contato">globalfer_marilia@yahoo.com.br</a>
+                <a href="#contato" aria-label={`Ver opções de contato para ${publicEmail}`} title="Ver opções de contato">{publicEmail}</a>
               </li>
               <li className={styles.address}>
                 <MapPin size={17} aria-hidden="true" />
-                <span>Avenida Sampaio Vidal, 45<br />Marília, SP, Brasil</span>
+                <span>{businessAddress.street}<br />{businessAddress.locality}</span>
               </li>
             </ul>
           </address>
