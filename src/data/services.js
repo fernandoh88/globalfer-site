@@ -1,4 +1,4 @@
-import { Building2, Hammer, Headphones, Ruler, Truck, Wrench } from 'lucide-react'
+import { Building2, Hammer, MessageCircle, Ruler, Truck, Wrench } from 'lucide-react'
 
 export const services = [
   {
@@ -29,6 +29,7 @@ export const services = [
   {
     title: 'Pedidos por WhatsApp',
     description: 'Atendimento direto para tirar dúvidas, enviar medidas e agilizar solicitações.',
-    icon: Headphones,
+    icon: MessageCircle,
+    href: '#contato',
   },
 ]

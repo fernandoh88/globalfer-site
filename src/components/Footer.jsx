@@ -38,15 +38,15 @@ function Footer() {
             <ul className={styles.contactList}>
               <li>
                 <Phone size={17} aria-hidden="true" />
-                <a href="tel:+5514997094240">(14) 99709-4240</a>
+                <a href="#contato" aria-label="Ver opções de contato para (14) 99709-4240" title="Ver opções de contato">(14) 99709-4240</a>
               </li>
               <li>
                 <Phone size={17} aria-hidden="true" />
-                <a href="tel:+551434151049">(14) 3415-1049</a>
+                <a href="#contato" aria-label="Ver opções de contato para (14) 3415-1049" title="Ver opções de contato">(14) 3415-1049</a>
               </li>
               <li>
                 <Mail size={17} aria-hidden="true" />
-                <a href="mailto:globalfer_marilia@yahoo.com.br">globalfer_marilia@yahoo.com.br</a>
+                <a href="#contato" aria-label="Ver opções de contato para globalfer_marilia@yahoo.com.br" title="Ver opções de contato">globalfer_marilia@yahoo.com.br</a>
               </li>
               <li className={styles.address}>
                 <MapPin size={17} aria-hidden="true" />
@@ -59,7 +59,7 @@ function Footer() {
         <div>
           <h3>Atendimento</h3>
           <div className={styles.socials}>
-            <a className={styles.whatsapp} href="https://wa.me/5514997094240">
+            <a className={styles.whatsapp} href="#contato" aria-label="WhatsApp: ver opções de contato" title="Ver opções de contato">
               <MessageCircle size={19} aria-hidden="true" />
               WhatsApp
             </a>

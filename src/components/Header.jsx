@@ -13,7 +13,6 @@ const navLinks = [
 const phoneContact = {
   display: '(14) 99709-4240',
   copyValue: '+55 14 99709-4240',
-  whatsappNumber: '5514997094240',
 }
 
 async function copyPhoneNumber(container) {
@@ -154,9 +153,9 @@ function Header() {
               {copyStatus === 'success' && 'Número copiado.'}
               {copyStatus === 'error' && 'Não foi possível copiar. Tente novamente ou copie o número manualmente.'}
             </span>
-            <a className={styles.headerCta} href={`https://wa.me/${phoneContact.whatsappNumber}`}>
+            <a className={styles.headerCta} href="#contato" onClick={closeMenu}>
               <MessageCircle size={18} aria-hidden="true" />
-              WhatsApp
+              Fale conosco
             </a>
           </div>
         </nav>

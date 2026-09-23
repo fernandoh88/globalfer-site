@@ -1,4 +1,4 @@
-import { MessageCircle, Phone, Plus, Send, Trash2 } from 'lucide-react'
+import { Mail, MessageCircle, Phone, Plus, Send, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { products } from '../data/products.js'
 import styles from '../styles/Contact.module.css'
@@ -115,6 +115,14 @@ function Contact() {
             <a className={styles.phone} href="tel:+5514997094240">
               <Phone size={20} aria-hidden="true" />
               <span>(14) 99709-4240</span>
+            </a>
+            <a className={styles.phone} href="tel:+551434151049" aria-label="Ligar para o telefone fixo: (14) 3415-1049">
+              <Phone size={20} aria-hidden="true" />
+              <span>(14) 3415-1049</span>
+            </a>
+            <a className={styles.email} href="mailto:globalfer_marilia@yahoo.com.br">
+              <Mail size={20} aria-hidden="true" />
+              <span>globalfer_marilia@yahoo.com.br</span>
             </a>
           </div>
         </div>
