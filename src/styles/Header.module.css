@@ -58,6 +58,14 @@
 }
 
 .nav {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 28px;
+}
+
+.navLinks {
   display: flex;
   align-items: center;
   gap: 28px;
@@ -65,14 +73,14 @@
   font-weight: 650;
 }
 
-.nav a {
+.navLinks a {
   position: relative;
   display: flex;
   align-items: center;
   min-height: 44px;
 }
 
-.nav a::after {
+.navLinks a::after {
   position: absolute;
   left: 0;
   right: 0;
@@ -85,8 +93,62 @@
   transition: transform var(--transition);
 }
 
-.nav a:hover::after, .nav a:focus-visible::after {
+.navLinks a:hover::after, .navLinks a:focus-visible::after {
   transform: scaleX(1);
+}
+
+.contactActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.phoneCopy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-navy);
+  background: transparent;
+  font-size: 0.875rem;
+  font-weight: 650;
+  line-height: 1.4;
+  white-space: nowrap;
+  transition: background var(--transition), border-color var(--transition);
+}
+
+.phoneCopy:hover {
+  border-color: var(--color-steel);
+  background: var(--color-light-steel);
+}
+
+.phoneLabel {
+  display: grid;
+}
+
+.phoneLabel > span {
+  grid-area: 1 / 1;
+}
+
+.hiddenLabel {
+  visibility: hidden;
+}
+
+.copyAnnouncement {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 .headerCta {
@@ -113,13 +175,16 @@
   display: none !important;
 }
 
+@media (min-width: 1001px) and (max-width: 1100px) {
+  .container, .nav, .navLinks {
+    gap: 18px;
+  }
+}
+
 @media (max-width: 1000px) {
   .container {
     min-height: 72px;
     gap: 12px;
-  }
-  .headerCta {
-    margin-left: auto;
   }
   .menuButton {
     display: flex;
@@ -147,23 +212,31 @@
     opacity: 1;
     pointer-events: auto;
   }
-  .nav a {
+  .navLinks {
+    display: grid;
+    gap: 0;
+  }
+  .navLinks a {
     padding: 10px 8px;
     min-height: 48px;
     border-bottom: 1px solid var(--color-border);
   }
-  .nav a::after {
+  .navLinks a::after {
     display: none;
   }
-  .nav a:hover {
+  .navLinks a:hover {
     color: var(--color-orange-dark);
     background: var(--color-light-steel);
   }
-  .nav .mobileCta {
+  .navLinks .mobileCta {
     display: flex !important;
     color: var(--color-orange-dark);
     border-bottom: 0;
     margin-top: 6px;
+  }
+  .contactActions {
+    flex-wrap: wrap;
+    margin-top: 12px;
   }
 }
 
