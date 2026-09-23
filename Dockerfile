@@ -7,7 +7,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund \
     && npm cache clean --force
 
-COPY server/app.js server/index.js server/shutdown.js ./server/
+COPY server/app.js server/index.js server/shutdown.js server/whatsapp.js ./server/
 USER node
 
 # Cloud Run injects PORT; the application retains 3001 as its local fallback.

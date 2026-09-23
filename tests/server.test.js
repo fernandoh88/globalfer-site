@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
 import http from 'node:http'
-import { mock, test } from 'node:test'
+import { after, mock, test } from 'node:test'
 import nodemailer from 'nodemailer'
 
 // Install this guard before loading application code. Every fixture injects its
@@ -9,7 +9,12 @@ import nodemailer from 'nodemailer'
 mock.method(nodemailer, 'createTransport', () => {
   assert.fail('Real SMTP transports are forbidden in this test suite.')
 })
+const forbiddenFetch = mock.method(globalThis, 'fetch', () => {
+  assert.fail('External fetch requests are forbidden in this test suite.')
+})
+after(() => assert.equal(forbiddenFetch.mock.callCount(), 0, 'No test may use the default network fetch.'))
 const { createApp } = await import('../server/app.js')
+const { createWhatsAppNotifier } = await import('../server/whatsapp.js')
 
 const fakeEnv = {
   NODE_ENV: 'test',
@@ -31,7 +36,7 @@ const validQuote = () => ({
   items: [{ product: 'Tubo de aço', measurements: '2 peças de 6 metros' }],
 })
 
-async function fixture(t, { env = {}, sendMail, createTransport, now } = {}) {
+async function fixture(t, { env = {}, sendMail, createTransport, createWhatsAppNotifier, now } = {}) {
   const sent = []
   const transports = []
   const logs = []
@@ -45,6 +50,7 @@ async function fixture(t, { env = {}, sendMail, createTransport, now } = {}) {
     env: { ...fakeEnv, ...env },
     logger,
     now,
+    createWhatsAppNotifier,
     createTransport: (options) => {
       transports.push(options)
       if (createTransport) return createTransport(options)
@@ -828,4 +834,321 @@ test('framework URL-decoding failures reach the safe final error handler', async
   assert.equal(response.status, 400)
   assertSafe(response)
   assert.equal(server.transports.length, 0)
+})
+
+// Synthetic credentials and routing values: these fixtures must never reach Meta.
+const whatsappEnv = {
+  WHATSAPP_ENABLED: 'true',
+  WHATSAPP_GRAPH_API_VERSION: 'v26.0',
+  WHATSAPP_PHONE_NUMBER_ID: '123456789012345',
+  WHATSAPP_TO: '+15555550123',
+  WHATSAPP_TEMPLATE_NAME: 'globalfer_new_quote_test',
+  WHATSAPP_TEMPLATE_LANGUAGE: 'pt_BR',
+  WHATSAPP_ACCESS_TOKEN: 'synthetic-whatsapp-token-private-sentinel',
+}
+const privateQuote = () => ({
+  name: 'customer-name-private-sentinel',
+  phone: 'customer-phone-private-sentinel',
+  city: 'customer-city-private-sentinel',
+  message: 'customer-message-private-sentinel',
+  items: [{ product: 'customer-product-private-sentinel', measurements: 'customer-measurements-private-sentinel' }],
+})
+const whatsappProviderResponse = (ok = true) => ({
+  ok,
+  status: ok ? 200 : 401,
+  body: { async cancel() {} },
+  async json() {
+    return ok ? { messaging_product: 'whatsapp', messages: [{ id: 'wamid.fake-whatsapp-message-id' }] } : {
+      error: { message: `meta-provider-private-sentinel ${whatsappEnv.WHATSAPP_ACCESS_TOKEN}`, code: 190 },
+    }
+  },
+  async text() { return `meta-provider-private-sentinel ${whatsappEnv.WHATSAPP_ACCESS_TOKEN}` },
+})
+
+async function whatsappFixture(t, { env = {}, fetchImpl, timeoutMs = 1000, ...options } = {}) {
+  const whatsappCalls = []
+  const server = await fixture(t, {
+    ...options,
+    env: { ...whatsappEnv, ...env },
+    createWhatsAppNotifier: ({ env: notifierEnv, logger }) => createWhatsAppNotifier({
+      env: notifierEnv,
+      logger,
+      timeoutMs,
+      fetchImpl: (...args) => {
+        whatsappCalls.push(args)
+        return fetchImpl ? fetchImpl(...args) : Promise.resolve(whatsappProviderResponse())
+      },
+    }),
+  })
+  return { ...server, whatsappCalls }
+}
+
+function assertWhatsAppPrivate(server, response, quote = privateQuote()) {
+  assertSafe(response)
+  const output = `${response.text}\n${JSON.stringify(server.logs)}`
+  for (const marker of [
+    ...Object.values(whatsappEnv).filter((value) => value.length > 10),
+    whatsappEnv.WHATSAPP_TO.slice(1),
+    'meta-provider-private-sentinel',
+    ...[quote.name, quote.phone, quote.city, quote.message],
+    ...quote.items.flatMap(({ product, measurements }) => [product, measurements]),
+    'Authorization',
+    'Bearer',
+  ]) {
+    if (marker) assert.ok(!output.includes(marker), `Response or logs exposed private marker: ${marker}`)
+  }
+  for (const entry of server.logs) {
+    assert.ok(entry.args.every((argument) => typeof argument === 'string'), 'Log only fixed string categories.')
+  }
+}
+
+function assertQuoteSuccess(response) {
+  assert.equal(response.status, 200)
+  assert.deepEqual(response.body, { message: 'Solicita\u00e7\u00e3o enviada com sucesso.' })
+}
+
+test('WhatsApp disabled performs no provider call and preserves the existing email response', async (t) => {
+  const server = await whatsappFixture(t, { env: { WHATSAPP_ENABLED: 'false' } })
+  const response = await post(server, privateQuote())
+  assertQuoteSuccess(response)
+  assert.equal(server.sent.length, 1)
+  assert.equal(server.whatsappCalls.length, 0)
+  assert.deepEqual(server.logs, [])
+  assertWhatsAppPrivate(server, response)
+})
+
+test('successful email makes one enabled WhatsApp attempt with only the server configured destination', async (t) => {
+  const server = await whatsappFixture(t)
+  const response = await post(server, privateQuote())
+  assertQuoteSuccess(response)
+  assert.equal(server.sent.length, 1)
+  assert.equal(server.whatsappCalls.length, 1)
+  const [url, options] = server.whatsappCalls[0]
+  assert.equal(url, `https://graph.facebook.com/${whatsappEnv.WHATSAPP_GRAPH_API_VERSION}/${whatsappEnv.WHATSAPP_PHONE_NUMBER_ID}/messages`)
+  assert.equal(options.method, 'POST')
+  assert.equal(new Headers(options.headers).get('authorization'), `Bearer ${whatsappEnv.WHATSAPP_ACCESS_TOKEN}`)
+  const payload = JSON.parse(options.body)
+  assert.equal(payload.type, 'template')
+  assert.equal(payload.messaging_product, 'whatsapp')
+  assert.equal(payload.to, whatsappEnv.WHATSAPP_TO.slice(1))
+  assert.equal(payload.template.name, whatsappEnv.WHATSAPP_TEMPLATE_NAME)
+  assert.equal(payload.template.language.code, whatsappEnv.WHATSAPP_TEMPLATE_LANGUAGE)
+  assert.deepEqual(server.logs, [])
+  assertWhatsAppPrivate(server, response)
+})
+
+for (const failure of ['HTTP rejection', 'network rejection']) {
+  test(`WhatsApp ${failure} after email success returns the original success and redacts all private data`, async (t) => {
+    const quote = privateQuote()
+    const server = await whatsappFixture(t, {
+      fetchImpl: async () => {
+        if (failure === 'HTTP rejection') return whatsappProviderResponse(false)
+        throw Object.assign(new Error([
+          'meta-provider-private-sentinel', whatsappEnv.WHATSAPP_ACCESS_TOKEN,
+          whatsappEnv.WHATSAPP_TO, JSON.stringify(quote),
+        ].join(' ')), { response: quote, code: 190 })
+      },
+    })
+    const response = await post(server, quote)
+    assertQuoteSuccess(response)
+    assert.equal(server.sent.length, 1)
+    assert.equal(server.whatsappCalls.length, 1)
+    assert.deepEqual(server.logs.map(({ args }) => args), [['[whatsapp] delivery_failed']])
+    assertWhatsAppPrivate(server, response, quote)
+  })
+}
+
+test('WhatsApp timeout aborts the provider request and preserves HTTP success after email', async (t) => {
+  let aborted = false
+  const server = await whatsappFixture(t, {
+    timeoutMs: 20,
+    fetchImpl: (_url, { signal }) => new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => {
+        aborted = true
+        reject(new Error(`meta-provider-private-sentinel ${whatsappEnv.WHATSAPP_ACCESS_TOKEN}`))
+      }, { once: true })
+    }),
+  })
+  const response = await post(server, privateQuote())
+  assertQuoteSuccess(response)
+  assert.equal(aborted, true)
+  assert.equal(server.sent.length, 1)
+  assert.equal(server.whatsappCalls.length, 1)
+  assert.deepEqual(server.logs.map(({ args }) => args), [['[whatsapp] delivery_failed']])
+  assertWhatsAppPrivate(server, response)
+})
+
+test('invalid enabled WhatsApp configuration logs one safe category and cannot disrupt email', async (t) => {
+  const server = await whatsappFixture(t, { env: { WHATSAPP_ACCESS_TOKEN: '' } })
+  for (let index = 0; index < 2; index += 1) {
+    const response = await post(server, privateQuote())
+    assertQuoteSuccess(response)
+    assertWhatsAppPrivate(server, response)
+  }
+  assert.equal(server.sent.length, 2)
+  assert.equal(server.whatsappCalls.length, 0)
+  assert.deepEqual(server.logs.map(({ args }) => args), [['[whatsapp] configuration_invalid']])
+})
+
+test('unexpected injected notifier rejection cannot turn an accepted email into a retry response', async (t) => {
+  let attempts = 0
+  const server = await fixture(t, {
+    env: whatsappEnv,
+    createWhatsAppNotifier: () => async () => {
+      attempts += 1
+      throw new Error(`meta-provider-private-sentinel ${whatsappEnv.WHATSAPP_ACCESS_TOKEN} ${JSON.stringify(privateQuote())}`)
+    },
+  })
+  const response = await post(server, privateQuote())
+  assertQuoteSuccess(response)
+  assert.equal(server.sent.length, 1)
+  assert.equal(attempts, 1)
+  assert.deepEqual(server.logs.map(({ args }) => args), [['[whatsapp] delivery_failed']])
+  assertWhatsAppPrivate(server, response)
+})
+
+for (const failureStage of ['SMTP delivery', 'SMTP transport creation', 'SMTP configuration']) {
+  test(`${failureStage} failure never attempts WhatsApp and retains the generic email failure`, async (t) => {
+    const server = await whatsappFixture(t, failureStage === 'SMTP delivery'
+      ? { sendMail: async () => { throw providerError('EAUTH') } }
+      : failureStage === 'SMTP transport creation'
+        ? { createTransport: () => { throw providerError('EAUTH') } }
+        : { env: { SMTP_HOST: '' } })
+    const response = await post(server, privateQuote())
+    assert.equal(response.status, 500)
+    assert.equal(server.whatsappCalls.length, 0)
+    assert.deepEqual(server.logs.map(({ args }) => args), [['[mail] delivery_failed']])
+    assertWhatsAppPrivate(server, response)
+  })
+}
+
+test('WhatsApp receives only normalized validated data after SMTP and completes before HTTP success', async (t) => {
+  let releaseMail
+  let releaseWhatsApp
+  let markMailStarted
+  let markWhatsAppStarted
+  const mailCompletion = new Promise((resolve) => { releaseMail = resolve })
+  const whatsappCompletion = new Promise((resolve) => { releaseWhatsApp = resolve })
+  const mailStarted = new Promise((resolve) => { markMailStarted = resolve })
+  const whatsappStarted = new Promise((resolve) => { markWhatsAppStarted = resolve })
+  const received = []
+  let factoryCalls = 0
+  const server = await fixture(t, {
+    env: whatsappEnv,
+    sendMail: () => { markMailStarted(); return mailCompletion },
+    createWhatsAppNotifier: ({ env, logger }) => {
+      factoryCalls += 1
+      assert.equal(env.WHATSAPP_TO, whatsappEnv.WHATSAPP_TO)
+      assert.equal(typeof logger.error, 'function')
+      return async (quote) => {
+        received.push(quote)
+        markWhatsAppStarted()
+        await whatsappCompletion
+      }
+    },
+  })
+  const normalized = privateQuote()
+  const padded = Object.fromEntries(Object.entries(normalized).map(([key, value]) => [
+    key,
+    key === 'items' ? value.map((item) => Object.fromEntries(Object.entries(item).map(([field, text]) => [field, `  ${text}  `]))) : `  ${value}  `,
+  ]))
+  const pendingResponse = post(server, padded)
+  try {
+    await mailStarted
+    assert.deepEqual(received, [])
+    releaseMail()
+    await whatsappStarted
+    assert.deepEqual(received, [normalized])
+    const earlyResult = await Promise.race([
+      pendingResponse.then(() => 'response'),
+      new Promise((resolve) => setTimeout(() => resolve('waiting'), 20)),
+    ])
+    assert.equal(earlyResult, 'waiting', 'The request must await the bounded WhatsApp attempt.')
+    releaseWhatsApp()
+    const response = await pendingResponse
+    assertQuoteSuccess(response)
+    assert.equal(factoryCalls, 1)
+    assert.equal(server.sent.length, 1)
+    assertWhatsAppPrivate(server, response)
+  } finally {
+    releaseMail()
+    releaseWhatsApp()
+    await Promise.allSettled([pendingResponse])
+  }
+})
+
+for (const field of [
+  'whatsappTo', 'whatsapp_to', 'phoneNumberId', 'template', 'templateName',
+  'recipient', 'to', 'cc', 'bcc', 'WHATSAPP_TO', 'WHATSAPP_PHONE_NUMBER_ID',
+  'WHATSAPP_TEMPLATE_NAME', 'WHATSAPP_ACCESS_TOKEN', 'templateLanguage', 'whatsappAccessToken',
+]) {
+  test(`request field ${field} cannot control WhatsApp routing, templates or credentials`, async (t) => {
+    const server = await whatsappFixture(t)
+    const quote = privateQuote()
+    const response = await post(server, { ...quote, [field]: 'attacker-payload-private-sentinel' })
+    assert.equal(response.status, 400)
+    assert.equal(server.sent.length, 0)
+    assert.equal(server.transports.length, 0)
+    assert.equal(server.whatsappCalls.length, 0)
+    assert.deepEqual(server.logs, [])
+    assertWhatsAppPrivate(server, response, quote)
+  })
+}
+
+test('WhatsApp shares the eight eligible quote reservations and cannot amplify notifications', async (t) => {
+  const server = await whatsappFixture(t)
+  for (const [, invalidRequest, expectedStatus] of invalidRequests) {
+    assert.equal((await invalidRequest(server)).status, expectedStatus)
+  }
+  assert.equal(server.whatsappCalls.length, 0)
+  assert.equal(server.sent.length, 0)
+  for (let index = 0; index < 8; index += 1) {
+    const response = await post(server, privateQuote(), { 'X-Forwarded-For': `198.51.100.${index + 1}` })
+    assertQuoteSuccess(response)
+    assert.equal(server.whatsappCalls.length, index + 1)
+  }
+  const limited = await post(server, privateQuote())
+  assert.equal(limited.status, 429)
+  assert.equal(server.sent.length, 8)
+  assert.equal(server.whatsappCalls.length, 8)
+  assertWhatsAppPrivate(server, limited)
+})
+
+test('WhatsApp failures do not refund notification reservations or cause automatic retries', async (t) => {
+  const server = await whatsappFixture(t, { fetchImpl: async () => whatsappProviderResponse(false) })
+  for (let index = 0; index < 8; index += 1) assertQuoteSuccess(await post(server, privateQuote()))
+  const response = await post(server, privateQuote())
+  assert.equal(response.status, 429)
+  assert.equal(server.sent.length, 8)
+  assert.equal(server.whatsappCalls.length, 8)
+  assert.deepEqual(server.logs.map(({ args }) => args), Array.from({ length: 8 }, () => ['[whatsapp] delivery_failed']))
+  assertWhatsAppPrivate(server, response)
+})
+
+test('WhatsApp summary leaves all 30 complete products and full fields in the email to both original recipients', async (t) => {
+  const server = await whatsappFixture(t, { env: { QUOTE_EMAIL_TO: undefined } })
+  const quote = {
+    name: 'N'.repeat(120),
+    phone: '1'.repeat(40),
+    city: 'C'.repeat(120),
+    message: `message-start-${'M'.repeat(1974)}-message-end`,
+    items: Array.from({ length: 30 }, (_, index) => ({
+      product: `product-${index + 1}-${'P'.repeat(105)}`,
+      measurements: `measurements-${index + 1}-${'D'.repeat(960)}-complete`,
+    })),
+  }
+  const response = await post(server, quote)
+  assertQuoteSuccess(response)
+  assert.equal(server.whatsappCalls.length, 1)
+  assert.equal(server.sent.length, 1)
+  const mail = server.sent[0]
+  assert.equal(mail.to, defaultQuoteRecipients)
+  assert.equal(mail.cc, undefined)
+  assert.equal(mail.bcc, undefined)
+  for (const fullValue of [quote.name, quote.phone, quote.city, quote.message, ...quote.items.flatMap(({ product, measurements }) => [product, measurements])]) {
+    assert.ok(mail.text.includes(fullValue), 'Full email text must retain every quote field.')
+    assert.ok(mail.html.includes(fullValue), 'Full email HTML must retain every quote field.')
+  }
+  assert.deepEqual(server.logs, [])
+  assertWhatsAppPrivate(server, response, quote)
 })

@@ -1,5 +1,54 @@
 # Globalfer Security Audit
 
+## Optional WhatsApp notification preparation — 2026-09-22 UTC
+
+Scope: `feature/whatsapp-quote-notifications`, based on current `origin/main` in `C:\github\globalfer-secure`. This section describes the prepared code and its operational prerequisites; historical sections below retain their original evidence. The feature is disabled by default and has not been deployed or enabled. No Meta template was submitted, no production access token was added, no Secret Manager resources were changed, and no real WhatsApp message was sent. Frontend/Firebase configuration and the existing trusted email recipients are unchanged.
+
+### Integration, routing and data minimization
+
+`server/whatsapp.js` encapsulates the official Meta WhatsApp Business Platform Cloud API request, bounded template summary, configuration validation and deadline. Node 24 provides native `fetch`; no HTTP dependency is added. The backend container allowlist includes the new module. The provider endpoint has a fixed HTTPS Graph host and a validated version/sender-ID path, and redirects are rejected. Only server configuration selects sender ID, staff recipient, template name/language and token.
+
+The quote whitelist remains `name`, `phone`, `city`, optional `message`, and `items` with `product`/`measurements`. Visitor-supplied `whatsappTo`, `whatsapp_to`, `phoneNumberId`, `template`, `templateName`, `recipient`, `to`, `cc`, `bcc` or other extra fields remain invalid. The customer phone is summary content only. The recipient is a separately configured authorized staff/company contact; its consent and distinction from the actual sender number require manual verification because a Meta phone-number ID cannot establish the sender's telephone identity.
+
+Only an approved template is used, including outside the 24-hour customer service window. The proposed `globalfer_new_quote`/`pt_BR` values are unapproved suggestions. Account eligibility, exact template category/name/language and staff-recipient permission remain prerequisites, not facts asserted by this implementation. [Meta Cloud API](https://www.postman.com/meta/whatsapp-business-platform/documentation/wlk6lh4/whatsapp-cloud-api), [WhatsApp Business Messaging Policy](https://business.whatsapp.com/policy)
+
+WhatsApp receives five single-line parameters in fixed order: name, phone, city, products/measurements and message. Caps are 80, 40, 80, 400 and 200 UTF-16 code units respectively; at most 800 combined. The proposed template adds 164 fixed characters, for at most 964 rendered characters under the conservative 1,024-character budget. Products include at most five leading items that fit, with per-product and measurement caps of 64 and 96 and a reserved omitted-item count. Controls/whitespace are normalized, malformed surrogates are repaired and truncation preserves whole Unicode grapheme clusters. The complete quote, up to the existing 30-item and field limits, remains in both text and HTML email.
+
+### Credentials, errors and availability
+
+- `WHATSAPP_ACCESS_TOKEN` is a backend secret. Production preparation recommends `globalfer-whatsapp-access-token` in Google Secret Manager, injected through a pinned numbered version. Grant only this secret's `roles/secretmanager.secretAccessor` to the existing runtime identity, `globalfer-api-runtime@globalfer-site.iam.gserviceaccount.com`. No secret has been created or accessed for this feature. The existing `SMTP_PASS:3` mapping remains unchanged.
+- Other WhatsApp settings are backend configuration, never `VITE_*` or React values. Only literal `WHATSAPP_ENABLED=true` enables attempts. Unset/disabled configuration needs no WhatsApp values. Invalid enabled configuration logs the fixed `[whatsapp] configuration_invalid` category once at notifier creation and disables attempts without preventing email delivery.
+- The existing validation and eligible-mail reservation precede email. A failed email preserves the existing generic 500 and skips WhatsApp. Only successful email permits one WhatsApp attempt. Failure, rejection, invalid acknowledgement, invalid JSON or timeout after email success preserves the existing HTTP 200 success response.
+- The attempt is awaited, with a **5,000 ms total deadline** covering fetch and success-body parsing and an abort signal. It is not fire-and-forget. No retry or redirect is followed. The extra stage is bounded within the configured 60-second Cloud Run request timeout, although SMTP timeouts bound individual stages rather than proving a combined end-to-end deadline.
+- Delivery failure logs only `[whatsapp] delivery_failed`. No raw provider errors/body, access token, Authorization header, destination, sender ID, template parameters or customer fields are logged or returned. Provider acceptance is not confirmation of delivery; there is no delivery webhook or durable retry/outbox in this feature.
+- Cloud Run secret environment injection occurs before instance startup. An inaccessible secret can stop an instance from starting even when `WHATSAPP_ENABLED=false`; application-level safe configuration handling cannot fix platform IAM/secret retrieval failure. [Cloud Run secret configuration](https://docs.cloud.google.com/run/docs/configuring/services/secrets)
+
+### Shared budget, charges and residual risks
+
+One accepted valid quote consumes the existing **eight eligible-send attempts per 15 minutes** reservation and can generate one email message plus at most one WhatsApp API attempt. Failed/ambiguous attempts are not refunded; there is no additional attacker-amplifiable notification endpoint or quota. The 120-POST/minute admission limit, 64 KiB body cap, exact Origin enforcement, generic errors and `trust proxy=false` remain unchanged.
+
+WhatsApp introduces an additional external dependency, personal-data processor and charging/quota surface. Process-local counters still reset on restart and allow boundary bursts; overlapping revisions and independent senders prevent claiming an account-wide spend cap. Meta pricing/category rules, messaging/throughput quotas, template suspension, quality/account restrictions, token expiry/revocation and recipient consent withdrawal may prevent notifications. No exact price or free-message allowance is assumed. Account monitoring and staff-device access/retention review remain operational prerequisites. [Meta pricing](https://developers.facebook.com/docs/whatsapp/pricing/)
+
+An HTTP/abort/shutdown race can leave provider acceptance uncertain. Automatic retries are deliberately absent; users retain success after email acceptance and should not repeat a quote to retry the secondary channel. Health checks do not test Meta authentication, template approval, quotas or final delivery. The existing eight-second shutdown drain can still interrupt combined provider work; neither channel has an exactly-once delivery guarantee.
+
+### Verification record and release boundary
+
+| Check | Result |
+| --- | --- |
+| `npm ci` | Passed; 168 packages installed from the lockfile; zero vulnerabilities |
+| Syntax: `server/index.js`, `server/app.js`, `server/shutdown.js`, `server/whatsapp.js` | All passed |
+| `npm audit` | Zero vulnerabilities |
+| `npm audit --omit=dev` | Zero vulnerabilities |
+| `npm test` on Windows Node 24.15.0 | 250 tests passed: all 179 baseline tests plus 29 API cases and 42 module cases |
+| `npm run build` | Passed; Vite 6.4.3, 1,595 modules |
+| Linux amd64 production Docker image | Built successfully with Node 24.21.0; new module included; non-root runtime preserved |
+| Tests in production container with `--network none` | All 250 passed with external networking disabled; read-only root/tests, all capabilities dropped and no-new-privileges |
+| Changed-file secret scan and diff review | Passed; references are code, documented placeholders or synthetic test fixtures; no backend credential/configuration markers in the frontend bundle |
+
+Provider tests inject HTTP results and fake/in-memory SMTP without `.env`, credentials, Meta traffic or SMTP traffic. Coverage includes disabled/invalid configuration, email-first ordering, fixed two-recipient email routing, success/failure/timeout response semantics, one-attempt limits, full email preservation, Unicode/length/omission summaries, fixed endpoint and Bearer/payload construction, rejected visitor routing fields, deadline handling during response parsing, redirect/retry prevention and sensitive-data redaction. Isolated container tests use loopback HTTP for the local application only; no external network is available.
+
+The [manual setup plan](docs/whatsapp-notifications.md) records the official requirements, exact template/payload shape, seven environment variables and all thirteen Meta/Google release prerequisites. Stop before template submission, real WhatsApp delivery, production token entry, Secret Manager changes, Cloud Run/Firebase deployment and PR merge. A future release requires the verified account/phone/recipient/template/token/IAM configuration and explicit authorization to deploy or test live delivery. No frontend or Firebase redeployment is needed for this feature.
+
 ## Dual-recipient configuration and rollout requirements — 2026-09-22 UTC
 
 This section records the reviewed recipient change and required rollout configuration. At the pre-change production inspection, Cloud Run had **one explicitly configured recipient**. Because environment configuration takes precedence over the fallback, the backend image and production recipient value must both be updated.
